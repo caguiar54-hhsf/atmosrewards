@@ -113,7 +113,7 @@ const pointsDelta = (t) =>
   t.sign === "redeem"
     ? -(t.redeemPoints || 0)
     : (t.flightPoints || 0) + (t.bonusPoints || 0) + (t.nonStatusPoints || 0);
-const statusDelta = (t) => (t.sign === "redeem" ? 0 : t.statusPoints || 0);
+const statusDelta = (t) => (t.sign === "redeem" || t.statusUnconfirmed ? 0 : t.statusPoints || 0);
 
 // Simple CSV parser: header row + comma-separated values. Handles quoted fields (for
 // descriptions that might contain a comma) but assumes no embedded newlines in a field.
@@ -171,6 +171,53 @@ function csvRowToTx(row) {
     const n = Number(cleaned);
     return isNaN(n) ? 0 : n;
   };
+
+  // Alaska's own website export uses different column names than our custom format
+  // (Date, Activity, Points, Bonus Points, Total Points, Status Points) — detect and
+  // support it directly so files can be uploaded straight from alaskaair.com with no
+  // manual conversion.
+  const isNativeFormat =
+    row.activity !== undefined && row.points !== undefined && row["status points"] !== undefined;
+
+  if (isNativeFormat) {
+    const description = row.activity || "Imported activity";
+    const isFlight = /[A-Z]{3}-[A-Z]{3}/.test(description);
+    const rawPoints = num(row.points);
+    const rawBonus = num(row["bonus points"]);
+    const rawStatus = num(row["status points"]);
+    const rawTotal = num(row["total points"]);
+
+    // Alaska's export doesn't include a confirmed example of a redemption row — this
+    // treats a clearly negative Points/Total as a redemption; everything else is earned.
+    if (rawPoints < 0 || rawTotal < 0) {
+      return {
+        date: normalizeDateToISO(row.date),
+        description,
+        sign: "redeem",
+        flightPoints: 0,
+        bonusPoints: 0,
+        statusPoints: 0,
+        redeemPoints: Math.abs(rawTotal || rawPoints),
+      };
+    }
+
+    const flightPoints = isFlight ? rawPoints : 0;
+    const bonusPoints = isFlight ? rawBonus : rawPoints + rawBonus;
+    // Alaska's report has a known gap where flights often show Status Points = 0 — flag
+    // these with a suggested value (equal to flight points) instead of trusting the 0.
+    const needsReview = isFlight && rawStatus === 0;
+    return {
+      date: normalizeDateToISO(row.date),
+      description,
+      sign: "earn",
+      flightPoints,
+      bonusPoints,
+      statusPoints: needsReview ? flightPoints : rawStatus,
+      statusUnconfirmed: needsReview,
+    };
+  }
+
+  // Our own custom import/export format (also what "Export data" produces).
   const redeemPoints = num(row.redeempoints);
   const sign = redeemPoints > 0 ? "redeem" : "earn";
   return {
@@ -533,6 +580,7 @@ export default function AtmosTracker({
         let skipped = 0;
         let noDate = 0;
         let badDate = 0;
+        let flagged = 0;
         const newTx = [];
         for (const row of rows) {
           if (row.date === undefined) {
@@ -557,13 +605,14 @@ export default function AtmosTracker({
             continue;
           }
           existingKeys.add(key);
+          if (tx.statusUnconfirmed) flagged++;
           newTx.push({ id: uid(), ...tx });
           added++;
         }
         if (newTx.length) {
           persistTx([...transactions, ...newTx]);
         }
-        setImportResult({ added, skipped, noDate, badDate, error: null });
+        setImportResult({ added, skipped, noDate, badDate, flagged, error: null });
       } catch (e) {
         setImportResult({ added: 0, skipped: 0, error: "Couldn't read that file as CSV." });
       }
@@ -576,6 +625,7 @@ export default function AtmosTracker({
   // balance, lifetime miles, totals, status, or charts until confirmed as flown.
   const confirmedTransactions = useMemo(() => transactions.filter((t) => !t.planned), [transactions]);
   const plannedTransactions = useMemo(() => transactions.filter((t) => t.planned), [transactions]);
+  const reviewTransactions = useMemo(() => transactions.filter((t) => t.statusUnconfirmed && !t.planned), [transactions]);
 
   const balance = useMemo(
     () => (openingBalance?.amount || 0) + confirmedTransactions.reduce((s, t) => s + pointsDelta(t), 0),
@@ -759,6 +809,51 @@ export default function AtmosTracker({
       : confirmedTransactions.filter((t) => !isValidISODate(t.date));
     return { years: yearGroups, invalidItems };
   }, [sorted, confirmedTransactions, searchQuery]);
+
+  const renderReviewRow = (t) => {
+    if (editingTxId === t.id) {
+      return (
+        <ActivityEditor
+          key={t.id}
+          initial={t}
+          onSave={(tx) => {
+            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...tx } : x)));
+            setEditingTxId(null);
+          }}
+          onCancel={() => setEditingTxId(null)}
+        />
+      );
+    }
+    return (
+      <div key={t.id} className="planned-card review-card">
+        <div className="tx-date">{fmtDate(t.date)}</div>
+        <div className="planned-desc">{t.description}</div>
+        <div className="planned-est">
+          Alaska's export showed 0 status points for this flight &mdash; suggested{" "}
+          <strong className="pos">{t.statusPoints.toLocaleString()} sp</strong> (equal to flight points)
+        </div>
+        <div className="expanded-actions">
+          <button
+            className="btn btn-ghost btn-sm expanded-btn"
+            onClick={() => {
+              setAdding(false);
+              setEditingTxId(t.id);
+            }}
+          >
+            <Pencil size={14} /> Edit
+          </button>
+          <button
+            className="btn btn-primary btn-sm expanded-btn"
+            onClick={() =>
+              persistTx(transactions.map((x) => (x.id === t.id ? { ...x, statusUnconfirmed: false } : x)))
+            }
+          >
+            <Check size={14} /> Confirm {t.statusPoints.toLocaleString()} sp
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderPlannedRow = (t) => {
     if (editingTxId === t.id) {
@@ -1123,6 +1218,18 @@ export default function AtmosTracker({
               <h2>Activity</h2>
             </div>
 
+            {reviewTransactions.length > 0 && (
+              <div className="upcoming-section">
+                <div className="upcoming-heading">
+                  Needs review <span className="group-subtotal">status points not yet counted toward tier</span>
+                </div>
+                {reviewTransactions
+                  .slice()
+                  .sort((a, b) => (a.date < b.date ? -1 : 1))
+                  .map((t) => renderReviewRow(t))}
+              </div>
+            )}
+
             {plannedTransactions.length > 0 && (
               <div className="upcoming-section">
                 <div className="upcoming-heading">
@@ -1381,8 +1488,12 @@ export default function AtmosTracker({
         >
           <div className="add-card compact">
             <p className="hint" style={{ margin: 0 }}>
-              Upload a CSV with columns <code>date, description, flightPoints, bonusPoints, statusPoints, redeemPoints</code>.
-              Rows matching an entry you've already logged are skipped automatically.
+              Upload a CSV exported straight from alaskaair.com (Date, Activity, Points, Bonus
+              Points, Status Points), or one in this app's own format (
+              <code>date, description, flightPoints, bonusPoints, statusPoints, redeemPoints</code>
+              ). Rows matching an entry you've already logged are skipped automatically, and any
+              flight showing 0 status points gets flagged for you to confirm instead of trusted
+              as-is.
             </p>
             <input
               ref={fileInputRef}
@@ -1402,6 +1513,9 @@ export default function AtmosTracker({
                   <>
                     <Check size={13} /> Added {importResult.added.toLocaleString()} new
                     {importResult.skipped ? `, skipped ${importResult.skipped.toLocaleString()} already logged` : ""}
+                    {importResult.flagged
+                      ? `, ${importResult.flagged.toLocaleString()} flagged for status-points review`
+                      : ""}
                     {importResult.badDate
                       ? `, ${importResult.badDate.toLocaleString()} added with an unrecognized date (check "Unknown date" in Activity)`
                       : ""}
@@ -2380,6 +2494,7 @@ const CSS = `
 .planned-est { font-size: 12px; color: var(--muted); }
 .planned-est strong.pos { color: var(--coral-fg); }
 .planned-est strong.neg { color: var(--laser-fg); }
+.review-card { border-color: var(--coral); }
 
 .add-card input[type="file"] {
   font-size: 12px;
