@@ -136,6 +136,60 @@ const fmtAxisK = (v) => (v === 0 ? "0" : Math.abs(v) >= 1000 ? `${Math.round(v /
 
 // Pulls a flight number like "AS1092" or "HA1082" out of a description string, so we can
 // deep-link to FlightAware without needing any API or account.
+function extractRoute(description) {
+  const m = (description || "").match(/\b([A-Z]{3})-([A-Z]{3})\b/);
+  return m ? { origin: m[1], dest: m[2] } : null;
+}
+
+const fmtShortDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+// Groups unassigned flight legs into suggested trips: a chain continues when the next leg
+// either departs from where the last one landed, or returns to where the chain started, as
+// long as it's within a reasonable window of the previous leg. Only chains of 2+ legs are
+// suggested — a single flight isn't a "trip" worth grouping.
+const TRIP_CHAIN_WINDOW_DAYS = 21;
+function suggestTripChains(transactions) {
+  const candidates = transactions
+    .filter((t) => !t.planned && t.sign !== "redeem" && (t.flightPoints || 0) > 0 && !t.tripId && isValidISODate(t.date))
+    .map((t) => {
+      const route = extractRoute(t.description);
+      return route ? { ...t, ...route } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  const chains = [];
+  let current = null;
+  for (const t of candidates) {
+    if (current) {
+      const last = current.items[current.items.length - 1];
+      const daysSince = (new Date(t.date + "T00:00:00") - new Date(last.date + "T00:00:00")) / 86400000;
+      const connects = t.origin === last.dest || t.dest === current.items[0].origin;
+      if (daysSince <= TRIP_CHAIN_WINDOW_DAYS && daysSince >= 0 && connects) {
+        current.items.push(t);
+        continue;
+      }
+    }
+    if (current && current.items.length > 1) chains.push(current);
+    current = { items: [t] };
+  }
+  if (current && current.items.length > 1) chains.push(current);
+  return chains;
+}
+
+function chainSignature(chain) {
+  return chain.items
+    .map((t) => t.id)
+    .sort()
+    .join(",");
+}
+
+function suggestedTripName(chain) {
+  const first = chain.items[0];
+  const last = chain.items[chain.items.length - 1];
+  return `${first.origin} \u2194 ${last.dest === first.origin ? first.dest : last.dest}, ${fmtShortDate(first.date)}\u2013${fmtShortDate(last.date)}`;
+}
+
 function extractFlightIdent(description) {
   const m = (description || "").match(/\b([A-Z]{2}\d{2,4})\b/);
   return m ? m[1] : null;
@@ -636,6 +690,36 @@ async function saveLifetimeStart(ls) {
     /* best effort */
   }
 }
+async function loadTrips() {
+  try {
+    const res = await window.storage.get("atmos-trips", false);
+    return res ? JSON.parse(res.value) : [];
+  } catch {
+    return [];
+  }
+}
+async function saveTrips(trips) {
+  try {
+    await window.storage.set("atmos-trips", JSON.stringify(trips), false);
+  } catch {
+    /* best effort */
+  }
+}
+async function loadDismissedSuggestions() {
+  try {
+    const res = await window.storage.get("atmos-dismissed-trip-suggestions", false);
+    return res ? JSON.parse(res.value) : [];
+  } catch {
+    return [];
+  }
+}
+async function saveDismissedSuggestions(list) {
+  try {
+    await window.storage.set("atmos-dismissed-trip-suggestions", JSON.stringify(list), false);
+  } catch {
+    /* best effort */
+  }
+}
 
 const noop = async () => {
   // eslint-disable-next-line no-console
@@ -654,6 +738,12 @@ export default function AtmosTracker({
   const [goal, setGoal] = useState(null);
   const [openingBalance, setOpeningBalance] = useState(null);
   const [lifetimeStart, setLifetimeStart] = useState(null);
+  const [trips, setTrips] = useState([]);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState([]);
+  const [activityView, setActivityView] = useState("date"); // 'date' | 'trip'
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [groupingSuggestion, setGroupingSuggestion] = useState(null); // chain being named, or 'selection'
   const [adding, setAdding] = useState(false);
   const [editingTxId, setEditingTxId] = useState(null);
   const [expandedTxId, setExpandedTxId] = useState(null);
@@ -676,12 +766,14 @@ export default function AtmosTracker({
 
   useEffect(() => {
     (async () => {
-      const [tx, g, seeded, ob, ls] = await Promise.all([
+      const [tx, g, seeded, ob, ls, tr, ds] = await Promise.all([
         loadTx(),
         loadGoal(),
         loadSeededFlag(),
         loadOpeningBalance(),
         loadLifetimeStart(),
+        loadTrips(),
+        loadDismissedSuggestions(),
       ]);
       if (!seeded && tx.length === 0) {
         const seeded_tx = SEED_TRANSACTIONS.map((s) => ({ id: uid(), ...s }));
@@ -694,6 +786,8 @@ export default function AtmosTracker({
       setGoal(g);
       setOpeningBalance(ob);
       setLifetimeStart(ls);
+      setTrips(tr);
+      setDismissedSuggestions(ds);
       setLoaded(true);
     })();
   }, []);
@@ -717,11 +811,20 @@ export default function AtmosTracker({
   }, [loaded, transactions]);
 
   const doRefresh = async () => {
-    const [tx, g, ob, ls] = await Promise.all([loadTx(), loadGoal(), loadOpeningBalance(), loadLifetimeStart()]);
+    const [tx, g, ob, ls, tr, ds] = await Promise.all([
+      loadTx(),
+      loadGoal(),
+      loadOpeningBalance(),
+      loadLifetimeStart(),
+      loadTrips(),
+      loadDismissedSuggestions(),
+    ]);
     setTransactions(tx);
     setGoal(g);
     setOpeningBalance(ob);
     setLifetimeStart(ls);
+    setTrips(tr);
+    setDismissedSuggestions(ds);
     if ("serviceWorker" in navigator) {
       try {
         const reg = await navigator.serviceWorker.getRegistration();
@@ -795,6 +898,55 @@ export default function AtmosTracker({
   const persistLifetimeStart = (next) => {
     setLifetimeStart(next);
     saveLifetimeStart(next);
+  };
+  const persistTrips = (next) => {
+    setTrips(next);
+    saveTrips(next);
+  };
+  const persistDismissedSuggestions = (next) => {
+    setDismissedSuggestions(next);
+    saveDismissedSuggestions(next);
+  };
+
+  const assignTxToTrip = (txIds, tripId) => {
+    const idSet = new Set(txIds);
+    persistTx(transactions.map((t) => (idSet.has(t.id) ? { ...t, tripId } : t)));
+  };
+
+  const createTripAndAssign = (name, txIds) => {
+    const trip = { id: uid(), name: name.trim() || "Untitled trip" };
+    persistTrips([...trips, trip]);
+    assignTxToTrip(txIds, trip.id);
+  };
+
+  // If the Log Activity form created a brand-new trip inline, create it here and swap the
+  // placeholder field for a real tripId before the transaction itself gets saved.
+  const resolveTripField = (tx) => {
+    if (tx.__newTripName) {
+      const trip = { id: uid(), name: tx.__newTripName.trim() || "Untitled trip" };
+      persistTrips([...trips, trip]);
+      const { __newTripName, ...rest } = tx;
+      return { ...rest, tripId: trip.id };
+    }
+    return tx;
+  };
+
+  const dismissSuggestion = (chain) => {
+    persistDismissedSuggestions([...dismissedSuggestions, chainSignature(chain)]);
+  };
+
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
   };
 
   const toggleYear = (year) => {
@@ -1035,6 +1187,34 @@ export default function AtmosTracker({
 
   // Activity grouped by year, then by month, most recent first — each level carries a
   // points/status-points subtotal for its own entries.
+function buildYearMonthGroups(source) {
+  const byYear = new Map();
+  for (const t of source) {
+    if (!isValidISODate(t.date)) continue;
+    const year = yearOf(t.date);
+    const mKey = monthKey(t.date);
+    if (!byYear.has(year)) byYear.set(year, new Map());
+    const months = byYear.get(year);
+    if (!months.has(mKey)) months.set(mKey, { label: monthLabelLong(t.date), items: [], pts: 0, sp: 0 });
+    const bucket = months.get(mKey);
+    bucket.items.push(t);
+    bucket.pts += pointsDelta(t);
+    bucket.sp += statusDelta(t);
+  }
+  const years = Array.from(byYear.keys()).sort((a, b) => b - a);
+  return years.map((year) => {
+    const months = byYear.get(year);
+    const monthKeys = Array.from(months.keys()).sort((a, b) => (a < b ? 1 : -1));
+    const monthGroups = monthKeys.map((mk) => {
+      const g = months.get(mk);
+      return { key: mk, label: g.label, items: g.items.slice().reverse(), pts: g.pts, sp: g.sp };
+    });
+    const pts = monthGroups.reduce((s, g) => s + g.pts, 0);
+    const sp = monthGroups.reduce((s, g) => s + g.sp, 0);
+    return { year, months: monthGroups, pts, sp };
+  });
+}
+
   const groupedActivity = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const source = q
@@ -1043,36 +1223,49 @@ export default function AtmosTracker({
             (t.description || "").toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q)
         )
       : sorted;
-    const byYear = new Map();
-    for (const t of source) {
-      if (!isValidISODate(t.date)) continue;
-      const year = yearOf(t.date);
-      const mKey = monthKey(t.date);
-      if (!byYear.has(year)) byYear.set(year, new Map());
-      const months = byYear.get(year);
-      if (!months.has(mKey)) months.set(mKey, { label: monthLabelLong(t.date), items: [], pts: 0, sp: 0 });
-      const bucket = months.get(mKey);
-      bucket.items.push(t);
-      bucket.pts += pointsDelta(t);
-      bucket.sp += statusDelta(t);
-    }
-    const years = Array.from(byYear.keys()).sort((a, b) => b - a);
-    const yearGroups = years.map((year) => {
-      const months = byYear.get(year);
-      const monthKeys = Array.from(months.keys()).sort((a, b) => (a < b ? 1 : -1));
-      const monthGroups = monthKeys.map((mk) => {
-        const g = months.get(mk);
-        return { key: mk, label: g.label, items: g.items.slice().reverse(), pts: g.pts, sp: g.sp };
-      });
-      const pts = monthGroups.reduce((s, g) => s + g.pts, 0);
-      const sp = monthGroups.reduce((s, g) => s + g.sp, 0);
-      return { year, months: monthGroups, pts, sp };
-    });
+    const yearGroups = buildYearMonthGroups(source);
     const invalidItems = q
       ? []
       : confirmedTransactions.filter((t) => !isValidISODate(t.date));
     return { years: yearGroups, invalidItems };
   }, [sorted, confirmedTransactions, searchQuery]);
+
+  // "By trip" view: each trip's own activities, plus everything else grouped by year/month
+  // exactly like the "By date" view.
+  const tripGroupsData = useMemo(() => {
+    return trips
+      .map((trip) => {
+        const items = sorted.filter((t) => t.tripId === trip.id);
+        const pts = items.reduce((s, t) => s + pointsDelta(t), 0);
+        const sp = items.reduce((s, t) => s + statusDelta(t), 0);
+        const dates = items.filter((t) => isValidISODate(t.date)).map((t) => t.date);
+        return {
+          trip,
+          items: items.slice().reverse(),
+          pts,
+          sp,
+          startDate: dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null,
+          endDate: dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null,
+        };
+      })
+      .sort((a, b) => (b.startDate || "").localeCompare(a.startDate || ""));
+  }, [trips, sorted]);
+
+  const ungroupedYearGroups = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const base = sorted.filter((t) => !t.tripId);
+    const source = q
+      ? base.filter(
+          (t) => (t.description || "").toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q)
+        )
+      : base;
+    return buildYearMonthGroups(source);
+  }, [sorted, searchQuery]);
+
+  const tripSuggestions = useMemo(() => {
+    const chains = suggestTripChains(confirmedTransactions);
+    return chains.filter((c) => !dismissedSuggestions.includes(chainSignature(c)));
+  }, [confirmedTransactions, dismissedSuggestions]);
 
   const renderReviewRow = (t) => {
     if (editingTxId === t.id) {
@@ -1080,8 +1273,10 @@ export default function AtmosTracker({
         <ActivityEditor
           key={t.id}
           initial={t}
+          trips={trips}
           onSave={(tx) => {
-            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...tx } : x)));
+            const resolved = resolveTripField(tx);
+            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...resolved } : x)));
             setEditingTxId(null);
           }}
           onCancel={() => setEditingTxId(null)}
@@ -1125,8 +1320,10 @@ export default function AtmosTracker({
         <ActivityEditor
           key={t.id}
           initial={t}
+          trips={trips}
           onSave={(tx) => {
-            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...tx } : x)));
+            const resolved = resolveTripField(tx);
+            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...resolved } : x)));
             setEditingTxId(null);
           }}
           onCancel={() => setEditingTxId(null)}
@@ -1174,14 +1371,63 @@ export default function AtmosTracker({
     );
   };
 
+  const renderYearGroups = (yearGroups, isSearching) => (
+    <>
+      {yearGroups.map((yg) => {
+        const yearExpanded = isSearching || !collapsedYears.has(yg.year);
+        return (
+          <div className="year-group" key={yg.year}>
+            <button
+              className="group-heading year-heading"
+              onClick={() => toggleYear(yg.year)}
+              aria-expanded={yearExpanded}
+            >
+              <span className="group-heading-left">
+                <ChevronDown size={14} className={`chevron ${yearExpanded ? "" : "collapsed"}`} />
+                {yg.year}
+              </span>
+              <span className="group-subtotal">
+                {fmtSigned(yg.pts)} pts &middot; {fmtSigned(yg.sp)} sp
+              </span>
+            </button>
+            {yearExpanded &&
+              yg.months.map((mg) => {
+                const monthExpanded = isSearching || !collapsedMonths.has(mg.key);
+                return (
+                  <div className="month-group" key={mg.key}>
+                    <button
+                      className="group-heading month-heading"
+                      onClick={() => toggleMonth(mg.key)}
+                      aria-expanded={monthExpanded}
+                    >
+                      <span className="group-heading-left">
+                        <ChevronDown size={12} className={`chevron ${monthExpanded ? "" : "collapsed"}`} />
+                        {mg.label}
+                      </span>
+                      <span className="group-subtotal">
+                        {fmtSigned(mg.pts)} pts &middot; {fmtSigned(mg.sp)} sp
+                      </span>
+                    </button>
+                    {monthExpanded && <div className="log-list">{mg.items.map((t) => renderActivityRow(t))}</div>}
+                  </div>
+                );
+              })}
+          </div>
+        );
+      })}
+    </>
+  );
+
   const renderActivityRow = (t) => {
     if (editingTxId === t.id) {
       return (
         <ActivityEditor
           key={t.id}
           initial={t}
+          trips={trips}
           onSave={(tx) => {
-            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...tx } : x)));
+            const resolved = resolveTripField(tx);
+            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...resolved } : x)));
             setEditingTxId(null);
           }}
           onCancel={() => setEditingTxId(null)}
@@ -1203,6 +1449,9 @@ export default function AtmosTracker({
           persistTx(transactions.filter((x) => x.id !== t.id));
           setExpandedTxId(null);
         }}
+        selectMode={selectMode}
+        selected={selectedIds.has(t.id)}
+        onToggleSelect={() => toggleSelected(t.id)}
       />
     );
   };
@@ -1501,7 +1750,79 @@ export default function AtmosTracker({
           <div className="panel">
             <div className="panel-head">
               <h2>Activity</h2>
+              {!selectMode ? (
+                <button className="btn btn-ghost btn-sm" onClick={() => setSelectMode(true)}>
+                  Select
+                </button>
+              ) : (
+                <button className="btn btn-ghost btn-sm" onClick={exitSelectMode}>
+                  Cancel
+                </button>
+              )}
             </div>
+
+            <div className="tab-switch view-switch">
+              <button
+                className={`tab-btn ${activityView === "date" ? "active" : ""}`}
+                onClick={() => setActivityView("date")}
+              >
+                By date
+              </button>
+              <button
+                className={`tab-btn ${activityView === "trip" ? "active" : ""}`}
+                onClick={() => setActivityView("trip")}
+              >
+                By trip
+              </button>
+            </div>
+
+            {tripSuggestions.length > 0 && (
+              <div className="upcoming-section">
+                {tripSuggestions.map((chain) => (
+                  <div className="trip-suggestion" key={chainSignature(chain)}>
+                    {groupingSuggestion === chainSignature(chain) ? (
+                      <TripGroupEditor
+                        trips={trips}
+                        itemCount={chain.items.length}
+                        onAssignExisting={(tripId) => {
+                          assignTxToTrip(
+                            chain.items.map((i) => i.id),
+                            tripId
+                          );
+                          setGroupingSuggestion(null);
+                        }}
+                        onCreateNew={(name) => {
+                          createTripAndAssign(
+                            name,
+                            chain.items.map((i) => i.id)
+                          );
+                          setGroupingSuggestion(null);
+                        }}
+                        onCancel={() => setGroupingSuggestion(null)}
+                      />
+                    ) : (
+                      <>
+                        <p className="hint" style={{ margin: 0 }}>
+                          Looks like a trip: <strong>{suggestedTripName(chain)}</strong> (
+                          {chain.items.length} legs)
+                        </p>
+                        <div className="cta-row">
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={() => setGroupingSuggestion(chainSignature(chain))}
+                          >
+                            Group
+                          </button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => dismissSuggestion(chain)}>
+                            Dismiss
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {reviewTransactions.length > 0 && (
               <div className="upcoming-section">
@@ -1544,6 +1865,35 @@ export default function AtmosTracker({
               </div>
             )}
 
+            {selectMode && selectedIds.size > 0 && (
+              <div className="selection-bar">
+                {groupingSuggestion === "selection" ? (
+                  <TripGroupEditor
+                    trips={trips}
+                    itemCount={selectedIds.size}
+                    onAssignExisting={(tripId) => {
+                      assignTxToTrip(Array.from(selectedIds), tripId);
+                      setGroupingSuggestion(null);
+                      exitSelectMode();
+                    }}
+                    onCreateNew={(name) => {
+                      createTripAndAssign(name, Array.from(selectedIds));
+                      setGroupingSuggestion(null);
+                      exitSelectMode();
+                    }}
+                    onCancel={() => setGroupingSuggestion(null)}
+                  />
+                ) : (
+                  <>
+                    <span>{selectedIds.size} selected</span>
+                    <button className="btn btn-primary btn-sm" onClick={() => setGroupingSuggestion("selection")}>
+                      Group into trip
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="search-row">
               <Search size={14} className="search-icon" />
               <input
@@ -1577,84 +1927,91 @@ export default function AtmosTracker({
 
             {adding && (
               <ActivityEditor
+                trips={trips}
                 onSave={(tx) => {
-                  persistTx([...transactions, { id: uid(), ...tx }]);
+                  const resolved = resolveTripField(tx);
+                  persistTx([...transactions, { id: uid(), ...resolved }]);
                   setAdding(false);
                 }}
                 onCancel={() => setAdding(false)}
               />
             )}
 
-            {sorted.length === 0 && !adding ? (
+            {activityView === "date" ? (
+              sorted.length === 0 && !adding ? (
+                <p className="empty">
+                  No activity yet &mdash; tap the + button to log a flight, card bonus, or redemption.
+                </p>
+              ) : searchQuery.trim() && groupedActivity.years.length === 0 ? (
+                <p className="empty">No activity matches "{searchQuery.trim()}".</p>
+              ) : (
+                <div className="activity-groups">
+                  {groupedActivity.invalidItems.length > 0 && (
+                    <div className="year-group">
+                      <button
+                        className="group-heading year-heading"
+                        onClick={() => toggleYear("invalid")}
+                        aria-expanded={!collapsedYears.has("invalid")}
+                      >
+                        <span className="group-heading-left">
+                          <ChevronDown size={14} className={`chevron ${collapsedYears.has("invalid") ? "collapsed" : ""}`} />
+                          Unknown date
+                        </span>
+                      </button>
+                      {!collapsedYears.has("invalid") && (
+                        <div className="log-list">{groupedActivity.invalidItems.map((t) => renderActivityRow(t))}</div>
+                      )}
+                    </div>
+                  )}
+                  {renderYearGroups(groupedActivity.years, !!searchQuery.trim())}
+                </div>
+              )
+            ) : sorted.length === 0 && !adding ? (
               <p className="empty">
                 No activity yet &mdash; tap the + button to log a flight, card bonus, or redemption.
               </p>
-            ) : searchQuery.trim() && groupedActivity.years.length === 0 ? (
+            ) : tripGroupsData.length === 0 && ungroupedYearGroups.length === 0 ? (
               <p className="empty">No activity matches "{searchQuery.trim()}".</p>
             ) : (
               <div className="activity-groups">
-                {groupedActivity.invalidItems.length > 0 && (
-                  <div className="year-group">
-                    <button
-                      className="group-heading year-heading"
-                      onClick={() => toggleYear("invalid")}
-                      aria-expanded={!collapsedYears.has("invalid")}
-                    >
-                      <span className="group-heading-left">
-                        <ChevronDown size={14} className={`chevron ${collapsedYears.has("invalid") ? "collapsed" : ""}`} />
-                        Unknown date
-                      </span>
-                    </button>
-                    {!collapsedYears.has("invalid") && (
-                      <div className="log-list">{groupedActivity.invalidItems.map((t) => renderActivityRow(t))}</div>
-                    )}
-                  </div>
-                )}
-                {groupedActivity.years.map((yg) => {
-                  const isSearching = !!searchQuery.trim();
-                  const yearExpanded = isSearching || !collapsedYears.has(yg.year);
+                {tripGroupsData.map((tg) => {
+                  const key = `trip-${tg.trip.id}`;
+                  const expanded = !!searchQuery.trim() || !collapsedYears.has(key);
                   return (
-                    <div className="year-group" key={yg.year}>
+                    <div className="year-group" key={tg.trip.id}>
                       <button
                         className="group-heading year-heading"
-                        onClick={() => toggleYear(yg.year)}
-                        aria-expanded={yearExpanded}
+                        onClick={() => toggleYear(key)}
+                        aria-expanded={expanded}
                       >
                         <span className="group-heading-left">
-                          <ChevronDown size={14} className={`chevron ${yearExpanded ? "" : "collapsed"}`} />
-                          {yg.year}
+                          <ChevronDown size={14} className={`chevron ${expanded ? "" : "collapsed"}`} />
+                          {tg.trip.name}
                         </span>
                         <span className="group-subtotal">
-                          {fmtSigned(yg.pts)} pts &middot; {fmtSigned(yg.sp)} sp
+                          {fmtSigned(tg.pts)} pts &middot; {fmtSigned(tg.sp)} sp
                         </span>
                       </button>
-                      {yearExpanded &&
-                        yg.months.map((mg) => {
-                          const monthExpanded = isSearching || !collapsedMonths.has(mg.key);
-                          return (
-                            <div className="month-group" key={mg.key}>
-                              <button
-                                className="group-heading month-heading"
-                                onClick={() => toggleMonth(mg.key)}
-                                aria-expanded={monthExpanded}
-                              >
-                                <span className="group-heading-left">
-                                  <ChevronDown size={12} className={`chevron ${monthExpanded ? "" : "collapsed"}`} />
-                                  {mg.label}
-                                </span>
-                                <span className="group-subtotal">
-                                  {fmtSigned(mg.pts)} pts &middot; {fmtSigned(mg.sp)} sp
-                                </span>
-                              </button>
-                              {monthExpanded && (
-                                <div className="log-list">{mg.items.map((t) => renderActivityRow(t))}</div>
-                              )}
-                            </div>
-                          );
-                        })}
+                      {expanded && (
+                        <>
+                          {tg.startDate && (
+                            <p className="hint" style={{ margin: "-4px 0 4px" }}>
+                              {fmtDate(tg.startDate)}
+                              {tg.endDate && tg.endDate !== tg.startDate ? ` \u2013 ${fmtDate(tg.endDate)}` : ""}
+                            </p>
+                          )}
+                          <div className="log-list">{tg.items.map((t) => renderActivityRow(t))}</div>
+                        </>
+                      )}
                     </div>
                   );
                 })}
+                {ungroupedYearGroups.length > 0 && (
+                  <>
+                    <p className="not-in-trip-label">Not part of a trip</p>
+                    {renderYearGroups(ungroupedYearGroups, !!searchQuery.trim())}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -2102,6 +2459,38 @@ function PasswordEditor({ onSave, onCancel }) {
   );
 }
 
+function TripGroupEditor({ trips, itemCount, onAssignExisting, onCreateNew, onCancel }) {
+  const [newName, setNewName] = useState("");
+  return (
+    <div className="add-card compact">
+      <p className="hint" style={{ margin: 0 }}>
+        Group {itemCount} {itemCount === 1 ? "entry" : "entries"} into a trip.
+      </p>
+      {trips.length > 0 && (
+        <div className="trip-pick-list">
+          {trips.map((trip) => (
+            <button key={trip.id} className="btn btn-ghost btn-sm" onClick={() => onAssignExisting(trip.id)}>
+              Add to "{trip.name}"
+            </button>
+          ))}
+        </div>
+      )}
+      <label className="field">
+        <span>Or create a new trip</span>
+        <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Hilo family visit" />
+      </label>
+      <div className="cta-row">
+        <button className="btn btn-primary btn-sm" onClick={() => newName.trim() && onCreateNew(newName)}>
+          Create &amp; group
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function GoalEditor({ goal, onSave, onCancel }) {
   const [label, setLabel] = useState(goal?.label || "");
   const [amount, setAmount] = useState(goal?.amount || "");
@@ -2217,11 +2606,27 @@ function LifetimeMilesEditor({ lifetimeStart, onSave, onCancel }) {
 // A single activity entry, collapsed by default. Tapping it reveals full detail plus
 // clearly separated Edit/Delete actions — avoids cramped side-by-side icons that are easy
 // to mis-tap, and deleting requires a second confirming tap.
-function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete }) {
+function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete, selectMode, selected, onToggleSelect }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const total = pointsDelta(t);
   const sp = statusDelta(t);
   const flightIdent = t.sign !== "redeem" ? extractFlightIdent(t.description) : null;
+
+  if (selectMode) {
+    return (
+      <button className={`log-row-collapsed ${selected ? "row-selected" : ""}`} onClick={onToggleSelect}>
+        <input type="checkbox" checked={selected} readOnly className="row-checkbox" />
+        <div className="tx-main">
+          <span className="tx-date">{fmtDate(t.date)}</span>
+          <span className="tx-desc">{t.description}</span>
+        </div>
+        <span className={total >= 0 ? "tx-amt pos" : "tx-amt neg"}>
+          {total >= 0 ? "+" : ""}
+          {total.toLocaleString()} pts
+        </span>
+      </button>
+    );
+  }
 
   if (!expanded) {
     return (
@@ -2311,7 +2716,7 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete }) {
   );
 }
 
-function ActivityEditor({ onSave, onCancel, initial }) {
+function ActivityEditor({ onSave, onCancel, initial, trips = [] }) {
   const [date, setDate] = useState(initial?.date || todayISO());
   const [description, setDescription] = useState(initial?.description || "");
   const [sign, setSign] = useState(initial?.sign || "earn");
@@ -2321,6 +2726,8 @@ function ActivityEditor({ onSave, onCancel, initial }) {
   const [redeemPoints, setRedeemPoints] = useState(initial?.redeemPoints || "");
   const [planned, setPlanned] = useState(initial?.planned || false);
   const [notes, setNotes] = useState(initial?.notes || "");
+  const [tripChoice, setTripChoice] = useState(initial?.tripId || "none");
+  const [newTripName, setNewTripName] = useState("");
 
   const fp = Number(flightPoints) || 0;
   const bp = Number(bonusPoints) || 0;
@@ -2342,6 +2749,8 @@ function ActivityEditor({ onSave, onCancel, initial }) {
       redeemPoints: sign === "redeem" ? rp : 0,
       planned: sign === "earn" ? planned : false,
       notes: notes.trim(),
+      tripId: tripChoice === "none" || tripChoice === "new" ? null : tripChoice,
+      ...(tripChoice === "new" && newTripName.trim() ? { __newTripName: newTripName.trim() } : {}),
     });
   };
 
@@ -2378,6 +2787,25 @@ function ActivityEditor({ onSave, onCancel, initial }) {
           placeholder="e.g. family trip, upgraded to first"
         />
       </label>
+
+      <label className="field">
+        <span>Trip (optional)</span>
+        <select value={tripChoice} onChange={(e) => setTripChoice(e.target.value)}>
+          <option value="none">No trip</option>
+          {trips.map((trip) => (
+            <option key={trip.id} value={trip.id}>
+              {trip.name}
+            </option>
+          ))}
+          <option value="new">+ New trip&hellip;</option>
+        </select>
+      </label>
+      {tripChoice === "new" && (
+        <label className="field">
+          <span>New trip name</span>
+          <input value={newTripName} onChange={(e) => setNewTripName(e.target.value)} placeholder="Hilo family visit" />
+        </label>
+      )}
 
       {sign === "earn" ? (
         <>
@@ -2524,6 +2952,32 @@ const CSS = `
   border-radius: 10px;
   padding: 3px;
 }
+.view-switch { margin: 0 0 4px; }
+.trip-suggestion {
+  background: var(--bg-surface);
+  border: 1px dashed var(--coral);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trip-pick-list { display: flex; flex-direction: column; gap: 6px; }
+.selection-bar {
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ice);
+}
+.row-checkbox { accent-color: var(--coral); width: 16px; height: 16px; flex-shrink: 0; }
+.row-selected { background: rgba(0, 177, 64, 0.08); }
+.not-in-trip-label { font-size: 11px; color: var(--muted); font-weight: 600; margin: 4px 2px 0; }
 .tab-btn {
   flex: 1;
   background: none;
@@ -2962,7 +3416,8 @@ const CSS = `
 
 .field-row { display: flex; gap: 10px; }
 .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; font-size: 12px; color: var(--muted); font-weight: 600; }
-.field input {
+.field input,
+.field select {
   background: var(--bg-surface-2);
   border: 1px solid var(--line);
   border-radius: 8px;
