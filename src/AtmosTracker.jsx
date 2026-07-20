@@ -33,16 +33,25 @@ const monthLabel = (iso) =>
   isValidISODate(iso) ? new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "?";
 const monthLabelLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "long" });
 const fmtSigned = (n) => `${n >= 0 ? "+" : ""}${n.toLocaleString()}`;
+const fmtAxisK = (v) => (v === 0 ? "0" : Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}K` : `${v}`);
 
 // Collapses a sorted (ascending) list of transactions into one point per calendar month,
 // carrying the running total forward — used so multi-year charts show a trend instead of a
 // dense point-per-transaction line.
-function toMonthlySeries(items, deltaFn, startValue = 0) {
+// Short, all-caps month label for chart axes — "JAN", or "JAN 2026" when a chart spans
+// multiple years (the "All time" view) and needs to disambiguate.
+const chartMonthLabel = (iso, withYear) => {
+  const d = new Date(iso + "T00:00:00");
+  const mon = d.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
+  return withYear ? `${mon} ${d.getFullYear()}` : mon;
+};
+
+function toMonthlySeries(items, deltaFn, startValue = 0, withYear = false) {
   let running = startValue;
   const map = new Map();
   for (const t of items) {
     running += deltaFn(t);
-    map.set(monthKey(t.date), { year: yearOf(t.date), date: monthLabel(t.date), value: running });
+    map.set(monthKey(t.date), { year: yearOf(t.date), date: chartMonthLabel(t.date, withYear), value: running });
   }
   return Array.from(map.values());
 }
@@ -369,13 +378,13 @@ export default function AtmosTracker() {
   const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : 1));
   const pointsChart = useMemo(() => {
     const valid = sorted.filter((t) => isValidISODate(t.date));
-    const monthly = toMonthlySeries(valid, pointsDelta, openingBalance?.amount || 0);
+    const monthly = toMonthlySeries(valid, pointsDelta, openingBalance?.amount || 0, viewYear === "all");
     const filtered = viewYear === "all" ? monthly : monthly.filter((m) => m.year === viewYear);
     const showOpeningPoint =
       openingBalance?.amount &&
       (viewYear === "all" || (isValidISODate(openingBalance.asOf) && yearOf(openingBalance.asOf) === viewYear));
     if (showOpeningPoint) {
-      const label = isValidISODate(openingBalance.asOf) ? monthLabel(openingBalance.asOf) : "Start";
+      const label = isValidISODate(openingBalance.asOf) ? chartMonthLabel(openingBalance.asOf, viewYear === "all") : "START";
       return [{ date: label, value: openingBalance.amount }, ...filtered];
     }
     return filtered;
@@ -383,7 +392,7 @@ export default function AtmosTracker() {
 
   const statusChart = useMemo(() => {
     const filtered = sorted.filter((t) => isValidISODate(t.date) && (viewYear === "all" || yearOf(t.date) === viewYear));
-    return toMonthlySeries(filtered, statusDelta, 0);
+    return toMonthlySeries(filtered, statusDelta, 0, viewYear === "all");
   }, [sorted, viewYear]);
 
   const totals = useMemo(() => {
@@ -498,7 +507,7 @@ export default function AtmosTracker() {
       <header className="board-header">
         <div className="board-brand">
           {logoFailed ? (
-            <Sparkles size={19} strokeWidth={2.2} />
+            <Sparkles size={40} strokeWidth={2} />
           ) : (
             <img
               src="/b31sb3lrs6tg1.png"
@@ -507,9 +516,9 @@ export default function AtmosTracker() {
               onError={() => setLogoFailed(true)}
             />
           )}
-          <span>Atmos Tracker</span>
+          <span className="brand-title">Atmos Tracker</span>
         </div>
-        <p className="board-sub">unofficial companion &middot; Atmos Rewards points &amp; status</p>
+        <p className="board-sub">Unofficial Companion - ATMOS REWARDS Points &amp; Status</p>
       </header>
 
       <main className="board-main">
@@ -631,7 +640,7 @@ export default function AtmosTracker() {
                   <LineChart data={pointsChart} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={56} />
+                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
                     <Tooltip
                       contentStyle={{ background: "#322a68", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
@@ -690,7 +699,7 @@ export default function AtmosTracker() {
                   <LineChart data={statusChart} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={56} />
+                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
                     <Tooltip
                       contentStyle={{ background: "#322a68", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
@@ -1091,18 +1100,23 @@ const CSS = `
   outline-offset: 2px;
 }
 
-.board-header { padding: 20px 20px 4px 20px; }
+.board-header { padding: 24px 20px 4px 20px; text-align: center; }
 .board-brand {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
+}
+.board-brand svg { color: var(--ice); }
+.brand-logo { height: 48px; width: auto; display: block; border-radius: 6px; }
+.brand-title {
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
   font-size: 20px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
-.board-brand svg { color: var(--ice); }
-.brand-logo { height: 22px; width: auto; display: block; border-radius: 4px; }
-.board-sub { font-size: 11.5px; color: var(--muted); margin: 4px 0 0 0; }
+.board-sub { font-size: 11.5px; color: var(--muted); margin: 4px 0 0 0; font-style: italic; }
 
 .board-main { padding: 14px 20px 32px 20px; }
 .panel { display: flex; flex-direction: column; gap: 14px; }
