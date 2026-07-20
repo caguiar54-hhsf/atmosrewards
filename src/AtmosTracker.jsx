@@ -14,10 +14,10 @@ import {
 // ---------- Atmos Rewards program constants (2026) ----------
 // Status points reset each calendar year; earned benefits run through Jan 31 of the following year.
 const TIERS = [
-  { name: "Silver", threshold: 20000, color: "#b8c4cf" },
+  { name: "Silver", threshold: 20000, color: "#c7c2d9" },
   { name: "Gold", threshold: 40000, color: "#f2c14e" },
-  { name: "Platinum", threshold: 80000, color: "#9ad4d6" },
-  { name: "Titanium", threshold: 135000, color: "#c9a7f2" },
+  { name: "Platinum", threshold: 80000, color: "#f28fb0" },
+  { name: "Titanium", threshold: 135000, color: "#b98fe3" },
 ];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -237,6 +237,7 @@ export default function AtmosTracker() {
   const [editingOpening, setEditingOpening] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [logoFailed, setLogoFailed] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -370,7 +371,16 @@ export default function AtmosTracker() {
 
       <header className="board-header">
         <div className="board-brand">
-          <Sparkles size={19} strokeWidth={2.2} />
+          {logoFailed ? (
+            <Sparkles size={19} strokeWidth={2.2} />
+          ) : (
+            <img
+              src="/b31sb3lrs6tg1.png"
+              alt=""
+              className="brand-logo"
+              onError={() => setLogoFailed(true)}
+            />
+          )}
           <span>Atmos Tracker</span>
         </div>
         <p className="board-sub">unofficial companion &middot; Atmos Rewards points &amp; status</p>
@@ -403,20 +413,20 @@ export default function AtmosTracker() {
             </div>
 
             <div className="totals-grid">
-              <div className="total-tile" style={{ "--tile-color": "#5eead4" }}>
+              <div className="total-tile" style={{ "--tile-color": "#F9423A" }}>
                 <span className="total-label">Flight points</span>
                 <span className="total-value">{totals.flight.toLocaleString()}</span>
               </div>
-              <div className="total-tile" style={{ "--tile-color": "#ff8552" }}>
+              <div className="total-tile" style={{ "--tile-color": "#D2386E" }}>
                 <span className="total-label">Bonus points</span>
                 <span className="total-value">{totals.bonus.toLocaleString()}</span>
               </div>
-              <div className="total-tile" style={{ "--tile-color": "#f2b84b" }}>
+              <div className="total-tile" style={{ "--tile-color": "#E32636" }}>
                 <span className="total-label">Status points</span>
                 <span className="total-value">{totals.status.toLocaleString()}</span>
               </div>
               {openingBalance?.amount ? (
-                <div className="total-tile" style={{ "--tile-color": "#7d93a8" }}>
+                <div className="total-tile" style={{ "--tile-color": "#413691" }}>
                   <span className="total-label">Beginning balance</span>
                   <span className="total-value">{openingBalance.amount.toLocaleString()}</span>
                 </div>
@@ -492,14 +502,14 @@ export default function AtmosTracker() {
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height={130}>
                   <LineChart data={pointsChart} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                    <CartesianGrid stroke="#22394f" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: "#7d93a8", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#7d93a8", fontSize: 10 }} axisLine={false} tickLine={false} width={44} />
+                    <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={44} />
                     <Tooltip
                       contentStyle={{ background: "#12283a", border: "1px solid #22394f", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
                     />
-                    <Line type="monotone" dataKey="value" stroke="#5eead4" strokeWidth={2} dot={{ r: 3, fill: "#5eead4" }} />
+                    <Line type="monotone" dataKey="value" stroke="#F9423A" strokeWidth={2} dot={{ r: 3, fill: "#F9423A" }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -512,7 +522,7 @@ export default function AtmosTracker() {
                 {viewYear !== "all" && (
                   <span
                     className="tier-badge"
-                    style={{ color: tierInfo.current?.color || "#7d93a8", borderColor: tierInfo.current?.color || "#22394f" }}
+                    style={{ color: tierInfo.current?.color || "#b7a8d9", borderColor: tierInfo.current?.color || "#4f4390" }}
                   >
                     {tierInfo.current ? tierInfo.current.name : "No tier yet"}
                   </span>
@@ -529,7 +539,7 @@ export default function AtmosTracker() {
                   <div className="goal-bar">
                     <div
                       className="goal-bar-fill status-fill"
-                      style={{ width: `${tierInfo.pct}%`, background: tierInfo.next?.color || tierInfo.current?.color || "#5eead4" }}
+                      style={{ width: `${tierInfo.pct}%`, background: tierInfo.next?.color || tierInfo.current?.color || "#F9423A" }}
                     />
                   </div>
                   <div className="goal-foot">
@@ -550,9 +560,9 @@ export default function AtmosTracker() {
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height={140}>
                   <LineChart data={statusChart} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                    <CartesianGrid stroke="#22394f" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: "#7d93a8", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#7d93a8", fontSize: 10 }} axisLine={false} tickLine={false} width={44} />
+                    <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={44} />
                     <Tooltip
                       contentStyle={{ background: "#12283a", border: "1px solid #22394f", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
@@ -567,7 +577,7 @@ export default function AtmosTracker() {
                           label={{ value: t.name, position: "right", fill: t.color, fontSize: 10 }}
                         />
                       ))}
-                    <Line type="monotone" dataKey="value" stroke="#f2b84b" strokeWidth={2} dot={{ r: 3, fill: "#f2b84b" }} />
+                    <Line type="monotone" dataKey="value" stroke="#D2386E" strokeWidth={2} dot={{ r: 3, fill: "#D2386E" }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -933,16 +943,21 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');
 
 .app-root {
-  --bg-deep: #0d1b2a;
-  --bg-surface: #12283a;
-  --bg-surface-2: #16283d;
-  --line: #22394f;
-  --ice: #e8f1f5;
-  --muted: #7d93a8;
-  --teal: #5eead4;
-  --ember: #ff8552;
-  --gold: #f2b84b;
-  background: radial-gradient(120% 140% at 15% -10%, #16324a 0%, var(--bg-deep) 55%);
+  --bg-deep: #2b255d;
+  --bg-surface: #322a68;
+  --bg-surface-2: #3a3175;
+  --line: rgba(255, 255, 255, 0.18);
+  --ice: #f8f6fd;
+  --muted: #d3c6ec;
+  --coral: #f9423a;
+  --laser: #e32636;
+  --fuchsia: #d2386e;
+  --purple: #413691;
+  --coral-fg: #ff8478;
+  --laser-fg: #ff6f79;
+  --fuchsia-fg: #f291b9;
+  background: linear-gradient(rgba(16, 12, 38, 0.62), rgba(16, 12, 38, 0.62)),
+    linear-gradient(135deg, var(--purple) 0%, var(--fuchsia) 100%);
   color: var(--ice);
   font-family: 'Inter', system-ui, sans-serif;
   border-radius: 16px;
@@ -953,7 +968,7 @@ const CSS = `
 .app-root * { box-sizing: border-box; }
 .app-root button, .app-root input { font-family: inherit; color: inherit; }
 .app-root button:focus-visible, .app-root input:focus-visible {
-  outline: 2px solid var(--teal);
+  outline: 2px solid var(--coral);
   outline-offset: 2px;
 }
 
@@ -966,7 +981,8 @@ const CSS = `
   font-weight: 700;
   font-size: 20px;
 }
-.board-brand svg { color: var(--gold); }
+.board-brand svg { color: var(--ice); }
+.brand-logo { height: 22px; width: auto; display: block; border-radius: 4px; }
 .board-sub { font-size: 11.5px; color: var(--muted); margin: 4px 0 0 0; }
 
 .board-main { padding: 14px 20px 32px 20px; }
@@ -1010,11 +1026,11 @@ const CSS = `
   font-family: 'IBM Plex Mono', monospace;
   font-weight: 600;
   font-size: 32px;
-  background: #0a1826;
+  background: #1c1642;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 2px 6px;
-  color: var(--gold);
+  color: var(--coral);
   text-align: center;
   animation: flapin 0.35s ease;
 }
@@ -1043,10 +1059,10 @@ const CSS = `
 .status-number { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; color: var(--ice); }
 .goal-bar { height: 8px; background: var(--bg-surface-2); border-radius: 5px; overflow: hidden; }
 .goal-bar-fill { height: 100%; }
-.points-fill { background: linear-gradient(90deg, var(--teal), #38bdb0); }
+.points-fill { background: linear-gradient(90deg, var(--coral), var(--laser)); }
 .status-fill { transition: width 0.3s ease; }
 .goal-foot { font-size: 11.5px; color: var(--muted); }
-.link-btn { background: none; border: none; color: var(--teal); font-size: 12px; cursor: pointer; font-weight: 600; }
+.link-btn { background: none; border: none; color: var(--fuchsia-fg); font-size: 12px; cursor: pointer; font-weight: 600; }
 .hint { font-size: 11px; color: var(--muted); line-height: 1.5; margin: 2px 0 0 0; }
 
 .chart-wrap { margin: 2px -4px; }
@@ -1068,16 +1084,16 @@ const CSS = `
 
 .import-result {
   font-size: 12px;
-  color: var(--teal);
+  color: var(--coral-fg);
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.import-result.err { color: var(--ember); }
+.import-result.err { color: var(--laser-fg); }
 
 .warn-banner {
-  background: rgba(255, 133, 82, 0.1);
-  border: 1px solid var(--ember);
+  background: rgba(227, 38, 54, 0.12);
+  border: 1px solid var(--laser);
   border-radius: 8px;
   padding: 9px 12px;
   display: flex;
@@ -1095,7 +1111,7 @@ const CSS = `
 .add-card code {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 10.5px;
-  color: var(--teal);
+  color: var(--coral-fg);
 }
 
 .btn {
@@ -1110,10 +1126,10 @@ const CSS = `
   border: 1px solid transparent;
 }
 .btn-sm { padding: 7px 11px; font-size: 12.5px; }
-.btn-primary { background: var(--teal); color: #06201d; }
-.btn-primary:hover { background: #7ff2e2; }
+.btn-primary { background: var(--coral); color: #2b0e0c; }
+.btn-primary:hover { background: #ff6b5f; }
 .btn-ghost { background: transparent; border-color: var(--line); color: var(--ice); }
-.btn-ghost:hover { border-color: var(--teal); color: var(--teal); }
+.btn-ghost:hover { border-color: var(--coral-fg); color: var(--coral-fg); }
 
 .add-card {
   background: var(--bg-surface);
@@ -1138,12 +1154,20 @@ const CSS = `
 }
 .field input:disabled { opacity: 0.4; }
 .field-inline { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); font-weight: 500; }
-.field-inline input { accent-color: var(--teal); }
+.field-inline input { accent-color: var(--coral); }
 .cta-row { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .empty { color: var(--muted); font-size: 13px; }
 
-.log-list { display: flex; flex-direction: column; gap: 2px; }
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 2px 10px;
+}
 .log-row {
   display: grid;
   grid-template-columns: 1fr 74px 62px 44px;
@@ -1160,18 +1184,18 @@ const CSS = `
 .tx-desc { color: var(--ice); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tx-breakdown { font-size: 10.5px; color: var(--muted); }
 .tx-amt { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
-.tx-amt.pos { color: var(--teal); }
-.tx-amt.neg { color: var(--ember); }
-.tx-status { text-align: right; color: var(--gold); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.tx-amt.pos { color: var(--coral-fg); }
+.tx-amt.neg { color: var(--laser-fg); }
+.tx-status { text-align: right; color: var(--fuchsia-fg); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
 .tx-actions { display: flex; gap: 2px; justify-content: flex-end; }
 
 .preview-row { font-size: 12.5px; color: var(--muted); }
-.preview-row strong.pos { color: var(--teal); }
-.preview-row strong.neg { color: var(--ember); }
-.preview-sp { color: var(--gold); }
+.preview-row strong.pos { color: var(--coral-fg); }
+.preview-row strong.neg { color: var(--laser-fg); }
+.preview-sp { color: var(--fuchsia-fg); }
 
 .icon-btn { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px; border-radius: 6px; display: flex; }
-.icon-btn:hover { color: var(--ember); background: rgba(255,255,255,0.05); }
+.icon-btn:hover { color: var(--laser-fg); background: rgba(255,255,255,0.12); }
 
 .loading-row { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 20px 0; }
 .spin { animation: spin 1s linear infinite; }
