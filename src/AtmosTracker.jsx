@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -232,6 +232,7 @@ export default function AtmosTracker() {
   const [goal, setGoal] = useState(null);
   const [openingBalance, setOpeningBalance] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [editingTxId, setEditingTxId] = useState(null);
   const [editingGoal, setEditingGoal] = useState(false);
   const [editingOpening, setEditingOpening] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -306,14 +307,27 @@ export default function AtmosTracker() {
     [transactions, openingBalance]
   );
   const yearNow = new Date().getFullYear();
-  const statusThisYear = useMemo(
+
+  const availableYears = useMemo(() => {
+    const years = new Set([yearNow]);
+    transactions.forEach((t) => {
+      if (isValidISODate(t.date)) years.add(yearOf(t.date));
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [transactions, yearNow]);
+
+  const [viewYear, setViewYear] = useState(yearNow);
+
+  const statusForViewYear = useMemo(
     () =>
-      transactions
-        .filter((t) => isValidISODate(t.date) && yearOf(t.date) === yearNow)
-        .reduce((s, t) => s + statusDelta(t), 0),
-    [transactions, yearNow]
+      viewYear === "all"
+        ? transactions.reduce((s, t) => s + statusDelta(t), 0)
+        : transactions
+            .filter((t) => isValidISODate(t.date) && yearOf(t.date) === viewYear)
+            .reduce((s, t) => s + statusDelta(t), 0),
+    [transactions, viewYear]
   );
-  const tierInfo = getTierInfo(statusThisYear);
+  const tierInfo = getTierInfo(statusForViewYear);
   const invalidCount = useMemo(() => transactions.filter((t) => !isValidISODate(t.date)).length, [transactions]);
 
   const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -332,21 +346,23 @@ export default function AtmosTracker() {
   const statusChart = useMemo(() => {
     let running = 0;
     return sorted
-      .filter((t) => isValidISODate(t.date) && yearOf(t.date) === yearNow)
+      .filter((t) => isValidISODate(t.date) && (viewYear === "all" || yearOf(t.date) === viewYear))
       .map((t) => {
         running += statusDelta(t);
         return { date: fmtShort(t.date), value: running };
       });
-  }, [sorted, yearNow]);
+  }, [sorted, viewYear]);
 
   const totals = useMemo(() => {
-    const earned = transactions.filter((t) => t.sign !== "redeem");
+    const earned = transactions.filter(
+      (t) => t.sign !== "redeem" && (viewYear === "all" || (isValidISODate(t.date) && yearOf(t.date) === viewYear))
+    );
     return {
       flight: earned.reduce((s, t) => s + (t.flightPoints || 0), 0),
       bonus: earned.reduce((s, t) => s + (t.bonusPoints || 0) + (t.nonStatusPoints || 0), 0),
       status: earned.reduce((s, t) => s + (t.statusPoints || 0), 0),
     };
-  }, [transactions]);
+  }, [transactions, viewYear]);
 
   return (
     <div className="app-root">
@@ -374,6 +390,18 @@ export default function AtmosTracker() {
               <span className="card-unit">redeemable &middot; never expire</span>
             </div>
 
+            <div className="panel-head">
+              <h2>Totals</h2>
+              <select className="year-select" value={viewYear} onChange={(e) => setViewYear(e.target.value === "all" ? "all" : Number(e.target.value))}>
+                {availableYears.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+                <option value="all">All time</option>
+              </select>
+            </div>
+
             <div className="totals-grid">
               <div className="total-tile" style={{ "--tile-color": "#5eead4" }}>
                 <span className="total-label">Flight points</span>
@@ -395,8 +423,9 @@ export default function AtmosTracker() {
               ) : null}
             </div>
             <p className="hint totals-hint">
-              Flight/bonus/status totals cover your logged activity only. Status points reset each year &mdash; see
-              this year's progress below.
+              {viewYear === "all"
+                ? "Lifetime totals across every year you've logged."
+                : `Totals for ${viewYear} only. Status points reset each Jan 1, so this is what counted toward tier that year.`}
               {!editingOpening && (
                 <>
                   {" "}
@@ -417,6 +446,7 @@ export default function AtmosTracker() {
                 onCancel={() => setEditingOpening(false)}
               />
             )}
+
 
             {goal ? (
               <div className="goal-card">
@@ -478,30 +508,42 @@ export default function AtmosTracker() {
             {/* Status / tier */}
             <div className="status-card">
               <div className="status-head">
-                <span className="card-label">{yearNow} status</span>
-                <span
-                  className="tier-badge"
-                  style={{ color: tierInfo.current?.color || "#7d93a8", borderColor: tierInfo.current?.color || "#22394f" }}
-                >
-                  {tierInfo.current ? tierInfo.current.name : "No tier yet"}
-                </span>
+                <span className="card-label">{viewYear === "all" ? "All-time" : viewYear} status</span>
+                {viewYear !== "all" && (
+                  <span
+                    className="tier-badge"
+                    style={{ color: tierInfo.current?.color || "#7d93a8", borderColor: tierInfo.current?.color || "#22394f" }}
+                  >
+                    {tierInfo.current ? tierInfo.current.name : "No tier yet"}
+                  </span>
+                )}
               </div>
-              <div className="status-number">{statusThisYear.toLocaleString()} status pts</div>
-              <div className="goal-bar">
-                <div
-                  className="goal-bar-fill status-fill"
-                  style={{ width: `${tierInfo.pct}%`, background: tierInfo.next?.color || tierInfo.current?.color || "#5eead4" }}
-                />
-              </div>
-              <div className="goal-foot">
-                {tierInfo.next
-                  ? `${(tierInfo.next.threshold - statusThisYear).toLocaleString()} pts to ${tierInfo.next.name}`
-                  : "Top tier reached for this year"}
-              </div>
-              <p className="hint">
-                Status points reset Jan 1, {yearNow + 1}. Status earned this year carries benefits through Jan 31,{" "}
-                {yearNow + 1}.
-              </p>
+              <div className="status-number">{statusForViewYear.toLocaleString()} status pts</div>
+              {viewYear === "all" ? (
+                <p className="hint">
+                  Status points reset every Jan 1, so this lifetime sum doesn't map to a single tier &mdash; pick a
+                  specific year above to see that year's tier progress.
+                </p>
+              ) : (
+                <>
+                  <div className="goal-bar">
+                    <div
+                      className="goal-bar-fill status-fill"
+                      style={{ width: `${tierInfo.pct}%`, background: tierInfo.next?.color || tierInfo.current?.color || "#5eead4" }}
+                    />
+                  </div>
+                  <div className="goal-foot">
+                    {tierInfo.next
+                      ? `${(tierInfo.next.threshold - statusForViewYear).toLocaleString()} pts to ${tierInfo.next.name}`
+                      : "Top tier reached that year"}
+                  </div>
+                  <p className="hint">
+                    {viewYear === yearNow
+                      ? `Status points reset Jan 1, ${yearNow + 1}. Status earned this year carries benefits through Jan 31, ${yearNow + 1}.`
+                      : `Benefits from ${viewYear} status carried through Jan 31, ${viewYear + 1}.`}
+                  </p>
+                </>
+              )}
             </div>
 
             {statusChart.length > 1 && (
@@ -515,15 +557,16 @@ export default function AtmosTracker() {
                       contentStyle={{ background: "#12283a", border: "1px solid #22394f", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
                     />
-                    {TIERS.map((t) => (
-                      <ReferenceLine
-                        key={t.name}
-                        y={t.threshold}
-                        stroke={t.color}
-                        strokeDasharray="4 4"
-                        label={{ value: t.name, position: "right", fill: t.color, fontSize: 10 }}
-                      />
-                    ))}
+                    {viewYear !== "all" &&
+                      TIERS.map((t) => (
+                        <ReferenceLine
+                          key={t.name}
+                          y={t.threshold}
+                          stroke={t.color}
+                          strokeDasharray="4 4"
+                          label={{ value: t.name, position: "right", fill: t.color, fontSize: 10 }}
+                        />
+                      ))}
                     <Line type="monotone" dataKey="value" stroke="#f2b84b" strokeWidth={2} dot={{ r: 3, fill: "#f2b84b" }} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -537,7 +580,13 @@ export default function AtmosTracker() {
                 <button className="btn btn-ghost btn-sm" onClick={() => setImporting((v) => !v)}>
                   <Upload size={13} /> Import CSV
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={() => setAdding((v) => !v)}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    setEditingTxId(null);
+                    setAdding((v) => !v);
+                  }}
+                >
                   <Plus size={14} /> Log activity
                 </button>
               </div>
@@ -634,6 +683,19 @@ export default function AtmosTracker() {
                           ]
                             .filter(Boolean)
                             .join(" \u00b7 ");
+                    if (editingTxId === t.id) {
+                      return (
+                        <ActivityEditor
+                          key={t.id}
+                          initial={t}
+                          onSave={(tx) => {
+                            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...tx } : x)));
+                            setEditingTxId(null);
+                          }}
+                          onCancel={() => setEditingTxId(null)}
+                        />
+                      );
+                    }
                     return (
                       <div key={t.id} className="log-row tx-row">
                         <div className="tx-main">
@@ -646,13 +708,25 @@ export default function AtmosTracker() {
                           {total.toLocaleString()} pts
                         </span>
                         <span className="tx-status">{sp ? `+${sp.toLocaleString()} sp` : ""}</span>
-                        <button
-                          className="icon-btn tiny"
-                          onClick={() => persistTx(transactions.filter((x) => x.id !== t.id))}
-                          aria-label="Delete entry"
-                        >
-                          <X size={12} />
-                        </button>
+                        <div className="tx-actions">
+                          <button
+                            className="icon-btn tiny"
+                            onClick={() => {
+                              setAdding(false);
+                              setEditingTxId(t.id);
+                            }}
+                            aria-label="Edit entry"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            className="icon-btn tiny"
+                            onClick={() => persistTx(transactions.filter((x) => x.id !== t.id))}
+                            aria-label="Delete entry"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -736,14 +810,14 @@ function OpeningBalanceEditor({ openingBalance, onSave, onCancel }) {
   );
 }
 
-function ActivityEditor({ onSave, onCancel }) {
-  const [date, setDate] = useState(todayISO());
-  const [description, setDescription] = useState("");
-  const [sign, setSign] = useState("earn");
-  const [flightPoints, setFlightPoints] = useState("");
-  const [bonusPoints, setBonusPoints] = useState("");
-  const [statusPoints, setStatusPoints] = useState("");
-  const [redeemPoints, setRedeemPoints] = useState("");
+function ActivityEditor({ onSave, onCancel, initial }) {
+  const [date, setDate] = useState(initial?.date || todayISO());
+  const [description, setDescription] = useState(initial?.description || "");
+  const [sign, setSign] = useState(initial?.sign || "earn");
+  const [flightPoints, setFlightPoints] = useState(initial?.flightPoints || "");
+  const [bonusPoints, setBonusPoints] = useState((initial?.bonusPoints || 0) + (initial?.nonStatusPoints || 0) || "");
+  const [statusPoints, setStatusPoints] = useState(initial?.statusPoints || "");
+  const [redeemPoints, setRedeemPoints] = useState(initial?.redeemPoints || "");
 
   const fp = Number(flightPoints) || 0;
   const bp = Number(bonusPoints) || 0;
@@ -845,7 +919,7 @@ function ActivityEditor({ onSave, onCancel }) {
 
       <div className="cta-row">
         <button className="btn btn-primary btn-sm" onClick={submit}>
-          Save
+          {initial ? "Save changes" : "Save"}
         </button>
         <button className="btn btn-ghost btn-sm" onClick={onCancel}>
           Cancel
@@ -981,6 +1055,17 @@ const CSS = `
 .panel-head h2 { font-family: 'Space Grotesk', sans-serif; font-size: 15px; margin: 0; }
 .header-actions { display: flex; gap: 8px; }
 
+.year-select {
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ice);
+  cursor: pointer;
+}
+
 .import-result {
   font-size: 12px;
   color: var(--teal);
@@ -1061,7 +1146,7 @@ const CSS = `
 .log-list { display: flex; flex-direction: column; gap: 2px; }
 .log-row {
   display: grid;
-  grid-template-columns: 1fr 74px 62px 20px;
+  grid-template-columns: 1fr 74px 62px 44px;
   gap: 8px;
   align-items: center;
   font-size: 12px;
@@ -1078,6 +1163,7 @@ const CSS = `
 .tx-amt.pos { color: var(--teal); }
 .tx-amt.neg { color: var(--ember); }
 .tx-status { text-align: right; color: var(--gold); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.tx-actions { display: flex; gap: 2px; justify-content: flex-end; }
 
 .preview-row { font-size: 12.5px; color: var(--muted); }
 .preview-row strong.pos { color: var(--teal); }
@@ -1093,7 +1179,7 @@ const CSS = `
 
 @media (max-width: 420px) {
   .field-row { flex-direction: column; }
-  .log-row { grid-template-columns: 1fr 56px 44px 16px; font-size: 10.5px; }
+  .log-row { grid-template-columns: 1fr 56px 44px 40px; font-size: 10.5px; }
   .totals-grid { grid-template-columns: 1fr; }
 }
 `;
