@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -235,6 +235,33 @@ function TierDonut({ tier, statusPoints }) {
   );
 }
 
+function Modal({ title, onClose, children }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>{title}</h3>
+          <button className="icon-btn" onClick={onClose} aria-label="Close">
+            <X size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function AvatarCircle({ user, size = 40 }) {
+  const initial = (user?.fullName || user?.email || "?").trim().charAt(0).toUpperCase();
+  return user?.avatarUrl ? (
+    <img src={user.avatarUrl} alt="" className="avatar-img" style={{ width: size, height: size }} />
+  ) : (
+    <div className="avatar-fallback" style={{ width: size, height: size, fontSize: size * 0.42 }}>
+      {initial}
+    </div>
+  );
+}
+
 // ---------- storage ----------
 async function loadTx() {
   try {
@@ -297,7 +324,18 @@ async function saveOpeningBalance(ob) {
   }
 }
 
-export default function AtmosTracker() {
+const noop = async () => {
+  // eslint-disable-next-line no-console
+  console.warn("This action isn't available in this preview — it only works once deployed with Supabase auth.");
+};
+
+export default function AtmosTracker({
+  user = { email: "you@example.com", fullName: "You", avatarUrl: null },
+  onSignOut = noop,
+  onUpdateProfile = noop,
+  onChangePassword = noop,
+  onUploadAvatar = noop,
+}) {
   const [loaded, setLoaded] = useState(false);
   const [transactions, setTransactions] = useState([]);
   const [goal, setGoal] = useState(null);
@@ -306,12 +344,13 @@ export default function AtmosTracker() {
   const [editingTxId, setEditingTxId] = useState(null);
   const [collapsedYears, setCollapsedYears] = useState(() => new Set());
   const [collapsedMonths, setCollapsedMonths] = useState(() => new Set());
-  const [editingGoal, setEditingGoal] = useState(false);
-  const [editingOpening, setEditingOpening] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [logoFailed, setLogoFailed] = useState(false);
+  const [tab, setTab] = useState("overview");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeModal, setActiveModal] = useState(null); // 'profile' | 'password' | 'import' | 'opening' | 'goal' | null
   const fileInputRef = useRef(null);
+  const hasSeededCollapse = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -329,6 +368,24 @@ export default function AtmosTracker() {
       setLoaded(true);
     })();
   }, []);
+
+  // Default to only the current year expanded — once, the first time data is available.
+  useEffect(() => {
+    if (loaded && !hasSeededCollapse.current) {
+      hasSeededCollapse.current = true;
+      const thisYear = new Date().getFullYear();
+      setCollapsedYears((prev) => {
+        const years = new Set(prev);
+        transactions.forEach((t) => {
+          if (isValidISODate(t.date)) {
+            const y = yearOf(t.date);
+            if (y !== thisYear) years.add(y);
+          }
+        });
+        return years;
+      });
+    }
+  }, [loaded, transactions]);
 
   const persistTx = (next) => {
     setTransactions(next);
@@ -551,39 +608,69 @@ export default function AtmosTracker() {
       <style>{CSS}</style>
 
       <header className="board-header">
+        <button className="hamburger-btn" onClick={() => setMenuOpen(true)} aria-label="Open menu">
+          <Menu size={22} />
+        </button>
         <div className="board-brand">
           {logoFailed ? (
             <Sparkles size={64} strokeWidth={1.6} />
           ) : (
-            <img
-              src="/b31sb3lrs6tg1.png"
-              alt=""
-              className="brand-logo"
-              onError={() => setLogoFailed(true)}
-            />
+            <img src="/b31sb3lrs6tg1.png" alt="" className="brand-logo" onError={() => setLogoFailed(true)} />
           )}
           <span className="brand-title">Atmos Tracker</span>
         </div>
         <p className="board-sub">Unofficial Companion - ATMOS REWARDS Points &amp; Status</p>
       </header>
 
+      <div className="tab-switch">
+        <button className={`tab-btn ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>
+          Overview
+        </button>
+        <button className={`tab-btn ${tab === "activity" ? "active" : ""}`} onClick={() => setTab("activity")}>
+          Activity
+        </button>
+      </div>
+
       <main className="board-main">
         {!loaded ? (
           <div className="loading-row">
             <Loader2 size={16} className="spin" /> Loading your data&hellip;
           </div>
-        ) : (
+        ) : tab === "overview" ? (
           <div className="panel">
-            {/* Points balance */}
             <div className="points-card">
               <span className="card-label">Atmos points</span>
               <FlapNumber value={balance} />
               <span className="card-unit">redeemable &middot; never expire</span>
             </div>
 
+            {goal && (
+              <div className="goal-card">
+                <div className="goal-head">
+                  <span>
+                    Saving for: <strong>{goal.label || "a trip"}</strong>
+                  </span>
+                </div>
+                <div className="goal-bar">
+                  <div
+                    className="goal-bar-fill points-fill"
+                    style={{ width: `${Math.min(100, Math.round((balance / goal.amount) * 100))}%` }}
+                  />
+                </div>
+                <div className="goal-foot">
+                  {balance.toLocaleString()} / {goal.amount.toLocaleString()} pts (
+                  {Math.min(100, Math.round((balance / goal.amount) * 100))}%)
+                </div>
+              </div>
+            )}
+
             <div className="panel-head">
               <h2>Totals</h2>
-              <select className="year-select" value={viewYear} onChange={(e) => setViewYear(e.target.value === "all" ? "all" : Number(e.target.value))}>
+              <select
+                className="year-select"
+                value={viewYear}
+                onChange={(e) => setViewYear(e.target.value === "all" ? "all" : Number(e.target.value))}
+              >
                 {availableYears.map((y) => (
                   <option key={y} value={y}>
                     {y}
@@ -617,72 +704,12 @@ export default function AtmosTracker() {
               {viewYear === "all"
                 ? "Lifetime totals across every year you've logged."
                 : `Totals for ${viewYear} only. Status points reset each Jan 1, so this is what counted toward tier that year.`}
-              {!editingOpening && (
-                <>
-                  {" "}
-                  <button className="link-btn" onClick={() => setEditingOpening(true)}>
-                    {openingBalance?.amount ? "Edit beginning balance" : "Add a beginning balance"}
-                  </button>
-                </>
-              )}
             </p>
-
-            {editingOpening && (
-              <OpeningBalanceEditor
-                openingBalance={openingBalance}
-                onSave={(ob) => {
-                  persistOpening(ob);
-                  setEditingOpening(false);
-                }}
-                onCancel={() => setEditingOpening(false)}
-              />
-            )}
-
-
-            {goal ? (
-              <div className="goal-card">
-                <div className="goal-head">
-                  <span>
-                    Saving for: <strong>{goal.label || "a trip"}</strong>
-                  </span>
-                  <button className="link-btn" onClick={() => setEditingGoal(true)}>
-                    Edit
-                  </button>
-                </div>
-                <div className="goal-bar">
-                  <div
-                    className="goal-bar-fill points-fill"
-                    style={{ width: `${Math.min(100, Math.round((balance / goal.amount) * 100))}%` }}
-                  />
-                </div>
-                <div className="goal-foot">
-                  {balance.toLocaleString()} / {goal.amount.toLocaleString()} pts (
-                  {Math.min(100, Math.round((balance / goal.amount) * 100))}%)
-                </div>
-              </div>
-            ) : (
-              !editingGoal && (
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditingGoal(true)}>
-                  <Award size={14} /> Set a redemption goal
-                </button>
-              )
-            )}
-
-            {editingGoal && (
-              <GoalEditor
-                goal={goal}
-                onSave={(g) => {
-                  persistGoal(g);
-                  setEditingGoal(false);
-                }}
-                onCancel={() => setEditingGoal(false)}
-              />
-            )}
 
             {pointsChart.length > 1 && (
               <div className="chart-wrap">
                 <p className="chart-caption">Balance trend &middot; {viewYear === "all" ? "all time" : viewYear}</p>
-                <ResponsiveContainer width="100%" height={130}>
+                <ResponsiveContainer width="100%" height={120}>
                   <LineChart data={pointsChart} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -697,7 +724,6 @@ export default function AtmosTracker() {
               </div>
             )}
 
-            {/* Status / tier */}
             <div className="status-card">
               <div className="status-head">
                 <span className="card-label">{viewYear === "all" ? "All-time" : viewYear} status</span>
@@ -749,7 +775,7 @@ export default function AtmosTracker() {
             {statusChart.length > 1 && (
               <div className="chart-wrap">
                 <p className="chart-caption">Status points &middot; {viewYear === "all" ? "all time" : viewYear}</p>
-                <ResponsiveContainer width="100%" height={140}>
+                <ResponsiveContainer width="100%" height={130}>
                   <LineChart data={statusChart} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -773,24 +799,11 @@ export default function AtmosTracker() {
                 </ResponsiveContainer>
               </div>
             )}
-
-            {/* Activity log */}
+          </div>
+        ) : (
+          <div className="panel">
             <div className="panel-head">
               <h2>Activity</h2>
-              <div className="header-actions">
-                <button className="btn btn-ghost btn-sm" onClick={() => setImporting((v) => !v)}>
-                  <Upload size={13} /> Import CSV
-                </button>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    setEditingTxId(null);
-                    setAdding((v) => !v);
-                  }}
-                >
-                  <Plus size={14} /> Log activity
-                </button>
-              </div>
             </div>
 
             {invalidCount > 0 && (
@@ -808,48 +821,6 @@ export default function AtmosTracker() {
               </div>
             )}
 
-            {importing && (
-              <div className="add-card compact">
-                <p className="hint" style={{ margin: 0 }}>
-                  Upload a CSV with columns <code>date, description, flightPoints, bonusPoints, statusPoints,
-                  redeemPoints</code>. Rows matching an entry you've already logged are skipped automatically.
-                </p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImportFile(file);
-                    e.target.value = "";
-                  }}
-                />
-                {importResult && (
-                  <div className={`import-result ${importResult.error ? "err" : ""}`}>
-                    {importResult.error ? (
-                      importResult.error
-                    ) : (
-                      <>
-                        <Check size={13} /> Added {importResult.added.toLocaleString()} new
-                        {importResult.skipped ? `, skipped ${importResult.skipped.toLocaleString()} already logged` : ""}.
-                      </>
-                    )}
-                  </div>
-                )}
-                <div className="cta-row">
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => {
-                      setImporting(false);
-                      setImportResult(null);
-                    }}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            )}
-
             {adding && (
               <ActivityEditor
                 onSave={(tx) => {
@@ -862,8 +833,7 @@ export default function AtmosTracker() {
 
             {sorted.length === 0 && !adding ? (
               <p className="empty">
-                No activity yet &mdash; log a flight, card bonus, or redemption to start tracking your balance and
-                status.
+                No activity yet &mdash; tap the + button to log a flight, card bonus, or redemption.
               </p>
             ) : (
               <div className="activity-groups">
@@ -927,6 +897,282 @@ export default function AtmosTracker() {
           </div>
         )}
       </main>
+
+      <button
+        className="fab"
+        onClick={() => {
+          setTab("activity");
+          setEditingTxId(null);
+          setAdding(true);
+        }}
+        aria-label="Log activity"
+      >
+        <Plus size={24} />
+      </button>
+
+      {menuOpen && (
+        <div className="menu-backdrop" onClick={() => setMenuOpen(false)}>
+          <div className="menu-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="menu-user">
+              <AvatarCircle user={user} size={44} />
+              <div className="menu-user-info">
+                <div className="menu-user-name">{user.fullName || "You"}</div>
+                <div className="menu-user-email">{user.email}</div>
+              </div>
+            </div>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("profile");
+                setMenuOpen(false);
+              }}
+            >
+              <User size={16} /> Profile
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("password");
+                setMenuOpen(false);
+              }}
+            >
+              <KeyRound size={16} /> Reset password
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("import");
+                setMenuOpen(false);
+              }}
+            >
+              <Upload size={16} /> Import CSV
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("opening");
+                setMenuOpen(false);
+              }}
+            >
+              <Sparkles size={16} /> Beginning balance
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("goal");
+                setMenuOpen(false);
+              }}
+            >
+              <Award size={16} /> Redemption goal
+            </button>
+            <div className="menu-divider" />
+            <button
+              className="menu-item menu-item-danger"
+              onClick={() => {
+                setMenuOpen(false);
+                onSignOut();
+              }}
+            >
+              <LogOut size={16} /> Sign out
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeModal === "profile" && (
+        <Modal title="Profile" onClose={() => setActiveModal(null)}>
+          <ProfileEditor
+            user={user}
+            onUploadAvatar={onUploadAvatar}
+            onSave={async (p) => {
+              await onUpdateProfile(p);
+              setActiveModal(null);
+            }}
+            onCancel={() => setActiveModal(null)}
+          />
+        </Modal>
+      )}
+
+      {activeModal === "password" && (
+        <Modal title="Reset password" onClose={() => setActiveModal(null)}>
+          <PasswordEditor onSave={onChangePassword} onCancel={() => setActiveModal(null)} />
+        </Modal>
+      )}
+
+      {activeModal === "import" && (
+        <Modal
+          title="Import CSV"
+          onClose={() => {
+            setActiveModal(null);
+            setImportResult(null);
+          }}
+        >
+          <div className="add-card compact">
+            <p className="hint" style={{ margin: 0 }}>
+              Upload a CSV with columns <code>date, description, flightPoints, bonusPoints, statusPoints, redeemPoints</code>.
+              Rows matching an entry you've already logged are skipped automatically.
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportFile(file);
+                e.target.value = "";
+              }}
+            />
+            {importResult && (
+              <div className={`import-result ${importResult.error ? "err" : ""}`}>
+                {importResult.error ? (
+                  importResult.error
+                ) : (
+                  <>
+                    <Check size={13} /> Added {importResult.added.toLocaleString()} new
+                    {importResult.skipped ? `, skipped ${importResult.skipped.toLocaleString()} already logged` : ""}.
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {activeModal === "opening" && (
+        <Modal title="Beginning balance" onClose={() => setActiveModal(null)}>
+          <OpeningBalanceEditor
+            openingBalance={openingBalance}
+            onSave={(ob) => {
+              persistOpening(ob);
+              setActiveModal(null);
+            }}
+            onCancel={() => setActiveModal(null)}
+          />
+        </Modal>
+      )}
+
+      {activeModal === "goal" && (
+        <Modal title="Redemption goal" onClose={() => setActiveModal(null)}>
+          <GoalEditor
+            goal={goal}
+            onSave={(g) => {
+              persistGoal(g);
+              setActiveModal(null);
+            }}
+            onCancel={() => setActiveModal(null)}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function ProfileEditor({ user, onSave, onUploadAvatar, onCancel }) {
+  const [fullName, setFullName] = useState(user?.fullName || "");
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const fileRef = useRef(null);
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const url = await onUploadAvatar(file);
+      if (url) setAvatarUrl(url);
+    } catch (e) {
+      setError("Couldn't upload that image.");
+    }
+    setUploading(false);
+  };
+
+  return (
+    <div className="add-card compact">
+      <div className="avatar-row">
+        <AvatarCircle user={{ fullName, avatarUrl }} size={56} />
+        <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          <Camera size={13} /> {uploading ? "Uploading..." : "Change photo"}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => handleFile(e.target.files?.[0])}
+        />
+      </div>
+      {error && <p className="hint" style={{ color: "var(--laser-fg)" }}>{error}</p>}
+      <label className="field">
+        <span>Display name</span>
+        <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your name" />
+      </label>
+      <div className="cta-row">
+        <button className="btn btn-primary btn-sm" onClick={() => onSave({ fullName, avatarUrl })}>
+          Save
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PasswordEditor({ onSave, onCancel }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [status, setStatus] = useState(null); // null | 'saving' | 'done' | 'error'
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    if (password.length < 6) {
+      setStatus("error");
+      setError("Password needs to be at least 6 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setStatus("error");
+      setError("Passwords don't match.");
+      return;
+    }
+    setStatus("saving");
+    try {
+      await onSave(password);
+      setStatus("done");
+    } catch (e) {
+      setStatus("error");
+      setError("Couldn't update your password.");
+    }
+  };
+
+  return (
+    <div className="add-card compact">
+      {status === "done" ? (
+        <p className="hint">
+          <Check size={13} /> Password updated.
+        </p>
+      ) : (
+        <>
+          <label className="field">
+            <span>New password</span>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" />
+          </label>
+          <label className="field">
+            <span>Confirm password</span>
+            <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          </label>
+          {status === "error" && <p className="hint" style={{ color: "var(--laser-fg)" }}>{error}</p>}
+          <div className="cta-row">
+            <button className="btn btn-primary btn-sm" onClick={submit} disabled={status === "saving"}>
+              {status === "saving" ? "Saving..." : "Update password"}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1172,8 +1418,142 @@ const CSS = `
 }
 .board-sub { font-size: 11.5px; color: var(--muted); margin: 4px 0 0 0; font-style: italic; }
 
-.board-main { padding: 14px 20px 32px 20px; }
-.panel { display: flex; flex-direction: column; gap: 14px; }
+.board-header { position: relative; }
+.hamburger-btn {
+  position: absolute;
+  top: 18px;
+  left: 16px;
+  background: none;
+  border: none;
+  color: var(--ice);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+}
+.hamburger-btn:hover { background: rgba(255,255,255,0.08); }
+
+.tab-switch {
+  display: flex;
+  gap: 4px;
+  margin: 14px 20px 0;
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 3px;
+}
+.tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.tab-btn.active { background: var(--bg-surface); color: var(--ice); }
+
+.fab {
+  position: fixed;
+  bottom: 24px;
+  right: max(24px, calc((100vw - 560px) / 2 + 24px));
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--coral);
+  color: #2b0e0c;
+  border: none;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 30;
+}
+.fab:hover { background: #ff6b5f; }
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 5, 20, 0.55);
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+}
+.menu-drawer {
+  width: min(300px, 82vw);
+  height: 100%;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--line);
+  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+.menu-user { display: flex; align-items: center; gap: 10px; padding: 6px 6px 16px; }
+.menu-user-info { min-width: 0; }
+.menu-user-name { font-weight: 700; font-size: 14px; color: var(--ice); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-user-email { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--ice);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 12px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.menu-item:hover { background: rgba(255,255,255,0.06); }
+.menu-item svg { color: var(--muted); flex-shrink: 0; }
+.menu-item-danger { color: var(--laser-fg); }
+.menu-item-danger svg { color: var(--laser-fg); }
+.menu-divider { height: 1px; background: var(--line); margin: 8px 4px; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 5, 20, 0.6);
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.modal-card {
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 18px 24px;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.modal-head h3 { font-family: 'Space Grotesk', sans-serif; font-size: 16px; margin: 0; color: var(--ice); }
+
+.avatar-row { display: flex; align-items: center; gap: 12px; }
+.avatar-img { border-radius: 50%; object-fit: cover; }
+.avatar-fallback {
+  border-radius: 50%;
+  background: var(--purple);
+  color: var(--ice);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.board-main { padding: 14px 16px 100px 16px; }
+.panel { display: flex; flex-direction: column; gap: 12px; }
 
 .card-label { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.3px; }
 

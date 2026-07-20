@@ -23,3 +23,30 @@ create policy "individual update" on kv_store
 
 create policy "individual delete" on kv_store
   for delete using (auth.uid() = user_id);
+
+-- ---------------------------------------------------------------------------
+-- Profile photos: a public "avatars" bucket, one folder per user (named after
+-- their user id), so anyone can view a photo but only its owner can upload,
+-- replace, or delete it.
+-- ---------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+create policy "avatar images are publicly readable"
+  on storage.objects for select
+  using (bucket_id = 'avatars');
+
+create policy "users can upload their own avatar"
+  on storage.objects for insert
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create policy "users can update their own avatar"
+  on storage.objects for update
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create policy "users can delete their own avatar"
+  on storage.objects for delete
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
