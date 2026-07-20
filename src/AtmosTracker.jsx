@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -38,6 +38,35 @@ const monthLabel = (iso) =>
 const monthLabelLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "long" });
 const fmtSigned = (n) => `${n >= 0 ? "+" : ""}${n.toLocaleString()}`;
 const fmtAxisK = (v) => (v === 0 ? "0" : Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}K` : `${v}`);
+
+function downloadTextFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function transactionsToCSV(transactions) {
+  const header = "date,description,flightPoints,bonusPoints,statusPoints,redeemPoints";
+  const rows = transactions.map((t) => {
+    const desc = (t.description || "").replace(/"/g, '""');
+    const descField = desc.includes(",") ? `"${desc}"` : desc;
+    return [
+      t.date || "",
+      descField,
+      t.sign === "redeem" ? 0 : t.flightPoints || 0,
+      t.sign === "redeem" ? 0 : (t.bonusPoints || 0) + (t.nonStatusPoints || 0),
+      t.sign === "redeem" ? 0 : t.statusPoints || 0,
+      t.sign === "redeem" ? t.redeemPoints || 0 : 0,
+    ].join(",");
+  });
+  return [header, ...rows].join("\n");
+}
 
 // Collapses a sorted (ascending) list of transactions into one point per calendar month,
 // carrying the running total forward — used so multi-year charts show a trend instead of a
@@ -358,6 +387,7 @@ export default function AtmosTracker({
   const [adding, setAdding] = useState(false);
   const [editingTxId, setEditingTxId] = useState(null);
   const [expandedTxId, setExpandedTxId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [collapsedYears, setCollapsedYears] = useState(() => new Set());
   const [collapsedMonths, setCollapsedMonths] = useState(() => new Set());
   const [importResult, setImportResult] = useState(null);
@@ -550,8 +580,10 @@ export default function AtmosTracker({
   // Activity grouped by year, then by month, most recent first — each level carries a
   // points/status-points subtotal for its own entries.
   const groupedActivity = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const source = q ? sorted.filter((t) => (t.description || "").toLowerCase().includes(q)) : sorted;
     const byYear = new Map();
-    for (const t of sorted) {
+    for (const t of source) {
       if (!isValidISODate(t.date)) continue;
       const year = yearOf(t.date);
       const mKey = monthKey(t.date);
@@ -575,9 +607,11 @@ export default function AtmosTracker({
       const sp = monthGroups.reduce((s, g) => s + g.sp, 0);
       return { year, months: monthGroups, pts, sp };
     });
-    const invalidItems = transactions.filter((t) => !isValidISODate(t.date));
+    const invalidItems = q
+      ? []
+      : transactions.filter((t) => !isValidISODate(t.date));
     return { years: yearGroups, invalidItems };
-  }, [sorted, transactions]);
+  }, [sorted, transactions, searchQuery]);
 
   const renderActivityRow = (t) => {
     if (editingTxId === t.id) {
@@ -834,6 +868,22 @@ export default function AtmosTracker({
               <h2>Activity</h2>
             </div>
 
+            <div className="search-row">
+              <Search size={14} className="search-icon" />
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Search activity..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button className="icon-btn tiny" onClick={() => setSearchQuery("")} aria-label="Clear search">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
             {invalidCount > 0 && (
               <div className="warn-banner">
                 <span>
@@ -863,6 +913,8 @@ export default function AtmosTracker({
               <p className="empty">
                 No activity yet &mdash; tap the + button to log a flight, card bonus, or redemption.
               </p>
+            ) : searchQuery.trim() && groupedActivity.years.length === 0 ? (
+              <p className="empty">No activity matches "{searchQuery.trim()}".</p>
             ) : (
               <div className="activity-groups">
                 {groupedActivity.invalidItems.length > 0 && (
@@ -882,44 +934,51 @@ export default function AtmosTracker({
                     )}
                   </div>
                 )}
-                {groupedActivity.years.map((yg) => (
-                  <div className="year-group" key={yg.year}>
-                    <button
-                      className="group-heading year-heading"
-                      onClick={() => toggleYear(yg.year)}
-                      aria-expanded={!collapsedYears.has(yg.year)}
-                    >
-                      <span className="group-heading-left">
-                        <ChevronDown size={14} className={`chevron ${collapsedYears.has(yg.year) ? "collapsed" : ""}`} />
-                        {yg.year}
-                      </span>
-                      <span className="group-subtotal">
-                        {fmtSigned(yg.pts)} pts &middot; {fmtSigned(yg.sp)} sp
-                      </span>
-                    </button>
-                    {!collapsedYears.has(yg.year) &&
-                      yg.months.map((mg) => (
-                        <div className="month-group" key={mg.key}>
-                          <button
-                            className="group-heading month-heading"
-                            onClick={() => toggleMonth(mg.key)}
-                            aria-expanded={!collapsedMonths.has(mg.key)}
-                          >
-                            <span className="group-heading-left">
-                              <ChevronDown size={12} className={`chevron ${collapsedMonths.has(mg.key) ? "collapsed" : ""}`} />
-                              {mg.label}
-                            </span>
-                            <span className="group-subtotal">
-                              {fmtSigned(mg.pts)} pts &middot; {fmtSigned(mg.sp)} sp
-                            </span>
-                          </button>
-                          {!collapsedMonths.has(mg.key) && (
-                            <div className="log-list">{mg.items.map((t) => renderActivityRow(t))}</div>
-                          )}
-                        </div>
-                      ))}
-                  </div>
-                ))}
+                {groupedActivity.years.map((yg) => {
+                  const isSearching = !!searchQuery.trim();
+                  const yearExpanded = isSearching || !collapsedYears.has(yg.year);
+                  return (
+                    <div className="year-group" key={yg.year}>
+                      <button
+                        className="group-heading year-heading"
+                        onClick={() => toggleYear(yg.year)}
+                        aria-expanded={yearExpanded}
+                      >
+                        <span className="group-heading-left">
+                          <ChevronDown size={14} className={`chevron ${yearExpanded ? "" : "collapsed"}`} />
+                          {yg.year}
+                        </span>
+                        <span className="group-subtotal">
+                          {fmtSigned(yg.pts)} pts &middot; {fmtSigned(yg.sp)} sp
+                        </span>
+                      </button>
+                      {yearExpanded &&
+                        yg.months.map((mg) => {
+                          const monthExpanded = isSearching || !collapsedMonths.has(mg.key);
+                          return (
+                            <div className="month-group" key={mg.key}>
+                              <button
+                                className="group-heading month-heading"
+                                onClick={() => toggleMonth(mg.key)}
+                                aria-expanded={monthExpanded}
+                              >
+                                <span className="group-heading-left">
+                                  <ChevronDown size={12} className={`chevron ${monthExpanded ? "" : "collapsed"}`} />
+                                  {mg.label}
+                                </span>
+                                <span className="group-subtotal">
+                                  {fmtSigned(mg.pts)} pts &middot; {fmtSigned(mg.sp)} sp
+                                </span>
+                              </button>
+                              {monthExpanded && (
+                                <div className="log-list">{mg.items.map((t) => renderActivityRow(t))}</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1001,6 +1060,15 @@ export default function AtmosTracker({
               }}
             >
               <Award size={16} /> Redemption goal
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("export");
+                setMenuOpen(false);
+              }}
+            >
+              <Download size={16} /> Export data
             </button>
             <div className="menu-divider" />
             <button
@@ -1111,6 +1179,39 @@ export default function AtmosTracker({
             }}
             onCancel={() => setActiveModal(null)}
           />
+        </Modal>
+      )}
+
+      {activeModal === "export" && (
+        <Modal title="Export data" onClose={() => setActiveModal(null)}>
+          <div className="add-card compact">
+            <p className="hint" style={{ margin: 0 }}>
+              Download everything you've logged &mdash; useful as a backup, or to move your
+              data somewhere else.
+            </p>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() =>
+                downloadTextFile(
+                  `atmos-tracker-backup-${todayISO()}.json`,
+                  JSON.stringify({ transactions, goal, openingBalance, lifetimeStart }, null, 2),
+                  "application/json"
+                )
+              }
+            >
+              <Download size={14} /> Download full backup (JSON)
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => downloadTextFile(`atmos-tracker-activity-${todayISO()}.csv`, transactionsToCSV(transactions), "text/csv")}
+            >
+              <Download size={14} /> Download activity only (CSV)
+            </button>
+            <p className="hint" style={{ margin: 0 }}>
+              The CSV matches the Import CSV format, so it can be re-imported here or opened in
+              a spreadsheet.
+            </p>
+          </div>
         </Modal>
       )}
     </div>
@@ -1953,6 +2054,26 @@ const CSS = `
 .cta-row { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .empty { color: var(--muted); font-size: 13px; }
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.search-icon { color: var(--muted); flex-shrink: 0; }
+.search-input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--ice);
+  font-size: 14px;
+  min-width: 0;
+}
+.search-input::placeholder { color: var(--muted); }
 
 .log-list {
   display: flex;

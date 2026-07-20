@@ -92,6 +92,22 @@ private, don't share the URL, or ask me about adding an invite-only gate.
 - **Profile (name + photo)**: stored on the Supabase Auth user itself (`user_metadata`), via
   `src/lib/profile.js`. Photos are uploaded to the `avatars` Storage bucket.
 
+## Installing it like an app
+
+This is set up as a installable PWA (`vite-plugin-pwa`), so once it's deployed:
+
+- **iPhone (Safari)**: open the site, tap Share → **Add to Home Screen**.
+- **Android (Chrome)**: open the site, tap the menu (⋮) → **Add to Home screen** / **Install
+  app** (Chrome sometimes prompts automatically).
+
+It'll then open full-screen with its own icon, no browser address bar. The icon currently
+reuses `public/b31sb3lrs6tg1.png` at whatever size it happens to be — perfectly functional,
+but for a crisper home-screen icon later, add proper 192x192 and 512x512 PNGs to `public/` and
+point the `icons` entries in `vite.config.js` at them instead.
+
+This only works over **https** — `localhost` during local dev is a built-in exception, but
+once deployed, Vercel's `https` URL is what makes it installable.
+
 ## Notes
 
 - This is unofficial and has no connection to Alaska Airlines, Hawaiian Airlines, or Atmos
