@@ -42,7 +42,7 @@ function toMonthlySeries(items, deltaFn, startValue = 0) {
   const map = new Map();
   for (const t of items) {
     running += deltaFn(t);
-    map.set(monthKey(t.date), { date: monthLabel(t.date), value: running });
+    map.set(monthKey(t.date), { year: yearOf(t.date), date: monthLabel(t.date), value: running });
   }
   return Array.from(map.values());
 }
@@ -351,12 +351,16 @@ export default function AtmosTracker() {
   const pointsChart = useMemo(() => {
     const valid = sorted.filter((t) => isValidISODate(t.date));
     const monthly = toMonthlySeries(valid, pointsDelta, openingBalance?.amount || 0);
-    if (openingBalance?.amount) {
+    const filtered = viewYear === "all" ? monthly : monthly.filter((m) => m.year === viewYear);
+    const showOpeningPoint =
+      openingBalance?.amount &&
+      (viewYear === "all" || (isValidISODate(openingBalance.asOf) && yearOf(openingBalance.asOf) === viewYear));
+    if (showOpeningPoint) {
       const label = isValidISODate(openingBalance.asOf) ? monthLabel(openingBalance.asOf) : "Start";
-      return [{ date: label, value: openingBalance.amount }, ...monthly];
+      return [{ date: label, value: openingBalance.amount }, ...filtered];
     }
-    return monthly;
-  }, [sorted, openingBalance]);
+    return filtered;
+  }, [sorted, openingBalance, viewYear]);
 
   const statusChart = useMemo(() => {
     const filtered = sorted.filter((t) => isValidISODate(t.date) && (viewYear === "all" || yearOf(t.date) === viewYear));
@@ -603,13 +607,14 @@ export default function AtmosTracker() {
 
             {pointsChart.length > 1 && (
               <div className="chart-wrap">
+                <p className="chart-caption">Balance trend &middot; {viewYear === "all" ? "all time" : viewYear}</p>
                 <ResponsiveContainer width="100%" height={130}>
-                  <LineChart data={pointsChart} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                  <LineChart data={pointsChart} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={44} />
+                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={56} />
                     <Tooltip
-                      contentStyle={{ background: "#12283a", border: "1px solid #22394f", borderRadius: 8, fontSize: 12 }}
+                      contentStyle={{ background: "#322a68", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
                     />
                     <Line type="monotone" dataKey="value" stroke="#F9423A" strokeWidth={2} dot={{ r: 3, fill: "#F9423A" }} />
@@ -661,13 +666,14 @@ export default function AtmosTracker() {
 
             {statusChart.length > 1 && (
               <div className="chart-wrap">
+                <p className="chart-caption">Status points &middot; {viewYear === "all" ? "all time" : viewYear}</p>
                 <ResponsiveContainer width="100%" height={140}>
-                  <LineChart data={statusChart} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                  <LineChart data={statusChart} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={44} />
+                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={56} />
                     <Tooltip
-                      contentStyle={{ background: "#12283a", border: "1px solid #22394f", borderRadius: 8, fontSize: 12 }}
+                      contentStyle={{ background: "#322a68", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
                     />
                     {viewYear !== "all" &&
@@ -1134,6 +1140,7 @@ const CSS = `
 .hint { font-size: 11px; color: var(--muted); line-height: 1.5; margin: 2px 0 0 0; }
 
 .chart-wrap { margin: 2px -4px; }
+.chart-caption { font-size: 11px; color: var(--muted); margin: 0 4px 2px; font-weight: 600; }
 
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
 .panel-head h2 { font-family: 'Space Grotesk', sans-serif; font-size: 15px; margin: 0; }
