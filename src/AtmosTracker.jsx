@@ -28,8 +28,24 @@ const fmtDate = (iso) =>
   isValidISODate(iso)
     ? new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "Unknown date";
-const fmtShort = (iso) =>
-  isValidISODate(iso) ? new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "?";
+const monthKey = (iso) => iso.slice(0, 7); // "2026-07"
+const monthLabel = (iso) =>
+  isValidISODate(iso) ? new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "?";
+const monthLabelLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "long" });
+const fmtSigned = (n) => `${n >= 0 ? "+" : ""}${n.toLocaleString()}`;
+
+// Collapses a sorted (ascending) list of transactions into one point per calendar month,
+// carrying the running total forward — used so multi-year charts show a trend instead of a
+// dense point-per-transaction line.
+function toMonthlySeries(items, deltaFn, startValue = 0) {
+  let running = startValue;
+  const map = new Map();
+  for (const t of items) {
+    running += deltaFn(t);
+    map.set(monthKey(t.date), { date: monthLabel(t.date), value: running });
+  }
+  return Array.from(map.values());
+}
 
 // Redeemable point delta for a transaction. Earn entries are the sum of flight + bonus + non-status
 // points (mirrors the "Total points" column on the Atmos activity page); redeem entries subtract.
@@ -333,25 +349,18 @@ export default function AtmosTracker() {
 
   const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : 1));
   const pointsChart = useMemo(() => {
-    let running = openingBalance?.amount || 0;
-    const points = sorted.filter((t) => isValidISODate(t.date)).map((t) => {
-      running += pointsDelta(t);
-      return { date: fmtShort(t.date), value: running };
-    });
+    const valid = sorted.filter((t) => isValidISODate(t.date));
+    const monthly = toMonthlySeries(valid, pointsDelta, openingBalance?.amount || 0);
     if (openingBalance?.amount) {
-      return [{ date: openingBalance.asOf ? fmtShort(openingBalance.asOf) : "Start", value: openingBalance.amount }, ...points];
+      const label = isValidISODate(openingBalance.asOf) ? monthLabel(openingBalance.asOf) : "Start";
+      return [{ date: label, value: openingBalance.amount }, ...monthly];
     }
-    return points;
+    return monthly;
   }, [sorted, openingBalance]);
 
   const statusChart = useMemo(() => {
-    let running = 0;
-    return sorted
-      .filter((t) => isValidISODate(t.date) && (viewYear === "all" || yearOf(t.date) === viewYear))
-      .map((t) => {
-        running += statusDelta(t);
-        return { date: fmtShort(t.date), value: running };
-      });
+    const filtered = sorted.filter((t) => isValidISODate(t.date) && (viewYear === "all" || yearOf(t.date) === viewYear));
+    return toMonthlySeries(filtered, statusDelta, 0);
   }, [sorted, viewYear]);
 
   const totals = useMemo(() => {
@@ -364,6 +373,100 @@ export default function AtmosTracker() {
       status: earned.reduce((s, t) => s + (t.statusPoints || 0), 0),
     };
   }, [transactions, viewYear]);
+
+  // Activity grouped by year, then by month, most recent first — each level carries a
+  // points/status-points subtotal for its own entries.
+  const groupedActivity = useMemo(() => {
+    const byYear = new Map();
+    for (const t of sorted) {
+      if (!isValidISODate(t.date)) continue;
+      const year = yearOf(t.date);
+      const mKey = monthKey(t.date);
+      if (!byYear.has(year)) byYear.set(year, new Map());
+      const months = byYear.get(year);
+      if (!months.has(mKey)) months.set(mKey, { label: monthLabelLong(t.date), items: [], pts: 0, sp: 0 });
+      const bucket = months.get(mKey);
+      bucket.items.push(t);
+      bucket.pts += pointsDelta(t);
+      bucket.sp += statusDelta(t);
+    }
+    const years = Array.from(byYear.keys()).sort((a, b) => b - a);
+    const yearGroups = years.map((year) => {
+      const months = byYear.get(year);
+      const monthKeys = Array.from(months.keys()).sort((a, b) => (a < b ? 1 : -1));
+      const monthGroups = monthKeys.map((mk) => {
+        const g = months.get(mk);
+        return { key: mk, label: g.label, items: g.items.slice().reverse(), pts: g.pts, sp: g.sp };
+      });
+      const pts = monthGroups.reduce((s, g) => s + g.pts, 0);
+      const sp = monthGroups.reduce((s, g) => s + g.sp, 0);
+      return { year, months: monthGroups, pts, sp };
+    });
+    const invalidItems = transactions.filter((t) => !isValidISODate(t.date));
+    return { years: yearGroups, invalidItems };
+  }, [sorted, transactions]);
+
+  const renderActivityRow = (t) => {
+    const total = pointsDelta(t);
+    const sp = statusDelta(t);
+    const breakdown =
+      t.sign === "redeem"
+        ? null
+        : [
+            t.flightPoints ? `${t.flightPoints.toLocaleString()} flight` : null,
+            t.bonusPoints || t.nonStatusPoints
+              ? `${((t.bonusPoints || 0) + (t.nonStatusPoints || 0)).toLocaleString()} bonus`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" \u00b7 ");
+    if (editingTxId === t.id) {
+      return (
+        <ActivityEditor
+          key={t.id}
+          initial={t}
+          onSave={(tx) => {
+            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...tx } : x)));
+            setEditingTxId(null);
+          }}
+          onCancel={() => setEditingTxId(null)}
+        />
+      );
+    }
+    return (
+      <div key={t.id} className="log-row tx-row">
+        <div className="tx-main">
+          <span className="tx-date">{fmtDate(t.date)}</span>
+          <span className="tx-desc">{t.description}</span>
+          {breakdown && <span className="tx-breakdown">{breakdown}</span>}
+        </div>
+        <span className={total >= 0 ? "tx-amt pos" : "tx-amt neg"}>
+          {total >= 0 ? "+" : ""}
+          {total.toLocaleString()} pts
+        </span>
+        <span className="tx-status">{sp ? `+${sp.toLocaleString()} sp` : ""}</span>
+        <div className="tx-actions">
+          <button
+            className="icon-btn tiny"
+            onClick={() => {
+              setAdding(false);
+              setEditingTxId(t.id);
+            }}
+            aria-label="Edit entry"
+          >
+            <Pencil size={12} />
+          </button>
+          <button
+            className="icon-btn tiny"
+            onClick={() => persistTx(transactions.filter((x) => x.id !== t.id))}
+            aria-label="Delete entry"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="app-root">
@@ -675,71 +778,36 @@ export default function AtmosTracker() {
                 status.
               </p>
             ) : (
-              <div className="log-list">
-                {sorted
-                  .slice()
-                  .reverse()
-                  .map((t) => {
-                    const total = pointsDelta(t);
-                    const sp = statusDelta(t);
-                    const breakdown =
-                      t.sign === "redeem"
-                        ? null
-                        : [
-                            t.flightPoints ? `${t.flightPoints.toLocaleString()} flight` : null,
-                            t.bonusPoints || t.nonStatusPoints
-                              ? `${((t.bonusPoints || 0) + (t.nonStatusPoints || 0)).toLocaleString()} bonus`
-                              : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" \u00b7 ");
-                    if (editingTxId === t.id) {
-                      return (
-                        <ActivityEditor
-                          key={t.id}
-                          initial={t}
-                          onSave={(tx) => {
-                            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...tx } : x)));
-                            setEditingTxId(null);
-                          }}
-                          onCancel={() => setEditingTxId(null)}
-                        />
-                      );
-                    }
-                    return (
-                      <div key={t.id} className="log-row tx-row">
-                        <div className="tx-main">
-                          <span className="tx-date">{fmtDate(t.date)}</span>
-                          <span className="tx-desc">{t.description}</span>
-                          {breakdown && <span className="tx-breakdown">{breakdown}</span>}
+              <div className="activity-groups">
+                {groupedActivity.invalidItems.length > 0 && (
+                  <div className="year-group">
+                    <div className="year-heading">
+                      <span>Unknown date</span>
+                    </div>
+                    <div className="log-list">{groupedActivity.invalidItems.map((t) => renderActivityRow(t))}</div>
+                  </div>
+                )}
+                {groupedActivity.years.map((yg) => (
+                  <div className="year-group" key={yg.year}>
+                    <div className="year-heading">
+                      <span>{yg.year}</span>
+                      <span className="group-subtotal">
+                        {fmtSigned(yg.pts)} pts &middot; {fmtSigned(yg.sp)} sp
+                      </span>
+                    </div>
+                    {yg.months.map((mg) => (
+                      <div className="month-group" key={mg.key}>
+                        <div className="month-heading">
+                          <span>{mg.label}</span>
+                          <span className="group-subtotal">
+                            {fmtSigned(mg.pts)} pts &middot; {fmtSigned(mg.sp)} sp
+                          </span>
                         </div>
-                        <span className={total >= 0 ? "tx-amt pos" : "tx-amt neg"}>
-                          {total >= 0 ? "+" : ""}
-                          {total.toLocaleString()} pts
-                        </span>
-                        <span className="tx-status">{sp ? `+${sp.toLocaleString()} sp` : ""}</span>
-                        <div className="tx-actions">
-                          <button
-                            className="icon-btn tiny"
-                            onClick={() => {
-                              setAdding(false);
-                              setEditingTxId(t.id);
-                            }}
-                            aria-label="Edit entry"
-                          >
-                            <Pencil size={12} />
-                          </button>
-                          <button
-                            className="icon-btn tiny"
-                            onClick={() => persistTx(transactions.filter((x) => x.id !== t.id))}
-                            aria-label="Delete entry"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
+                        <div className="log-list">{mg.items.map((t) => renderActivityRow(t))}</div>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1168,6 +1236,31 @@ const CSS = `
   border-radius: 10px;
   padding: 2px 10px;
 }
+
+.activity-groups { display: flex; flex-direction: column; gap: 16px; }
+.year-group { display: flex; flex-direction: column; gap: 8px; }
+.year-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ice);
+  padding: 0 2px;
+}
+.month-group { display: flex; flex-direction: column; gap: 4px; }
+.month-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.group-subtotal { font-size: 11px; font-weight: 500; color: var(--muted); }
+.year-heading .group-subtotal { font-size: 12px; }
 .log-row {
   display: grid;
   grid-template-columns: 1fr 74px 62px 44px;
