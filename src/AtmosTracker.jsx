@@ -164,20 +164,18 @@ const SEED_TRANSACTIONS = [
 
 function getTierInfo(statusPoints) {
   let current = null;
-  let next = TIERS[0];
   for (const t of TIERS) {
     if (statusPoints >= t.threshold) {
       current = t;
     }
   }
   const idx = current ? TIERS.indexOf(current) : -1;
-  next = TIERS[idx + 1] || null;
-  const floor = current ? current.threshold : 0;
-  const ceiling = next ? next.threshold : current ? current.threshold : TIERS[0].threshold;
-  const span = ceiling - floor;
-  const into = statusPoints - floor;
-  const pct = span > 0 ? Math.min(100, Math.round((into / span) * 100)) : 100;
-  return { current, next, pct, ceiling };
+  const next = TIERS[idx + 1] || null;
+  // Percent toward the next tier's threshold, measured from zero — not from the current
+  // tier's own floor — so e.g. 56,451 of Platinum's 80,000 reads as 71%, not as 41% of the
+  // remaining Gold-to-Platinum span.
+  const pct = next ? Math.min(100, Math.round((statusPoints / next.threshold) * 100)) : 100;
+  return { current, next, pct };
 }
 
 function FlapNumber({ value }) {
@@ -359,6 +357,7 @@ export default function AtmosTracker({
   const [lifetimeStart, setLifetimeStart] = useState(null);
   const [adding, setAdding] = useState(false);
   const [editingTxId, setEditingTxId] = useState(null);
+  const [expandedTxId, setExpandedTxId] = useState(null);
   const [collapsedYears, setCollapsedYears] = useState(() => new Set());
   const [collapsedMonths, setCollapsedMonths] = useState(() => new Set());
   const [importResult, setImportResult] = useState(null);
@@ -581,19 +580,6 @@ export default function AtmosTracker({
   }, [sorted, transactions]);
 
   const renderActivityRow = (t) => {
-    const total = pointsDelta(t);
-    const sp = statusDelta(t);
-    const breakdown =
-      t.sign === "redeem"
-        ? null
-        : [
-            t.flightPoints ? `${t.flightPoints.toLocaleString()} flight` : null,
-            t.bonusPoints || t.nonStatusPoints
-              ? `${((t.bonusPoints || 0) + (t.nonStatusPoints || 0)).toLocaleString()} bonus`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" \u00b7 ");
     if (editingTxId === t.id) {
       return (
         <ActivityEditor
@@ -608,37 +594,21 @@ export default function AtmosTracker({
       );
     }
     return (
-      <div key={t.id} className="log-row tx-row">
-        <div className="tx-main">
-          <span className="tx-date">{fmtDate(t.date)}</span>
-          <span className="tx-desc">{t.description}</span>
-          {breakdown && <span className="tx-breakdown">{breakdown}</span>}
-        </div>
-        <span className={total >= 0 ? "tx-amt pos" : "tx-amt neg"}>
-          {total >= 0 ? "+" : ""}
-          {total.toLocaleString()} pts
-        </span>
-        <span className="tx-status">{sp ? `+${sp.toLocaleString()} sp` : ""}</span>
-        <div className="tx-actions">
-          <button
-            className="icon-btn tiny"
-            onClick={() => {
-              setAdding(false);
-              setEditingTxId(t.id);
-            }}
-            aria-label="Edit entry"
-          >
-            <Pencil size={12} />
-          </button>
-          <button
-            className="icon-btn tiny"
-            onClick={() => persistTx(transactions.filter((x) => x.id !== t.id))}
-            aria-label="Delete entry"
-          >
-            <X size={12} />
-          </button>
-        </div>
-      </div>
+      <ActivityRow
+        key={t.id}
+        t={t}
+        expanded={expandedTxId === t.id}
+        onToggleExpand={() => setExpandedTxId(expandedTxId === t.id ? null : t.id)}
+        onEdit={() => {
+          setAdding(false);
+          setExpandedTxId(null);
+          setEditingTxId(t.id);
+        }}
+        onDelete={() => {
+          persistTx(transactions.filter((x) => x.id !== t.id));
+          setExpandedTxId(null);
+        }}
+      />
     );
   };
 
@@ -1369,6 +1339,85 @@ function LifetimeMilesEditor({ lifetimeStart, onSave, onCancel }) {
   );
 }
 
+// A single activity entry, collapsed by default. Tapping it reveals full detail plus
+// clearly separated Edit/Delete actions — avoids cramped side-by-side icons that are easy
+// to mis-tap, and deleting requires a second confirming tap.
+function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const total = pointsDelta(t);
+  const sp = statusDelta(t);
+
+  if (!expanded) {
+    return (
+      <button className="log-row-collapsed" onClick={onToggleExpand}>
+        <div className="tx-main">
+          <span className="tx-date">{fmtDate(t.date)}</span>
+          <span className="tx-desc">{t.description}</span>
+        </div>
+        <span className={total >= 0 ? "tx-amt pos" : "tx-amt neg"}>
+          {total >= 0 ? "+" : ""}
+          {total.toLocaleString()} pts
+        </span>
+        <span className="tx-status">{sp ? `+${sp.toLocaleString()} sp` : ""}</span>
+        <ChevronDown size={14} className="row-chevron" />
+      </button>
+    );
+  }
+
+  return (
+    <div className="log-row-expanded">
+      <button className="expanded-head" onClick={onToggleExpand}>
+        <span className="tx-date">{fmtDate(t.date)}</span>
+        <ChevronDown size={14} className="row-chevron collapsed" />
+      </button>
+      <div className="expanded-desc">{t.description}</div>
+      <div className="expanded-breakdown">
+        {t.sign === "redeem" ? (
+          <span className="expanded-pill">Redeemed {Math.abs(total).toLocaleString()} pts</span>
+        ) : (
+          <>
+            {!!t.flightPoints && <span className="expanded-pill">Flight: {t.flightPoints.toLocaleString()} pts</span>}
+            {!!(t.bonusPoints || t.nonStatusPoints) && (
+              <span className="expanded-pill">
+                Bonus: {((t.bonusPoints || 0) + (t.nonStatusPoints || 0)).toLocaleString()} pts
+              </span>
+            )}
+            {!!t.statusPoints && <span className="expanded-pill">Status: {t.statusPoints.toLocaleString()} sp</span>}
+          </>
+        )}
+      </div>
+      <div className="expanded-total">
+        Total:{" "}
+        <strong className={total >= 0 ? "pos" : "neg"}>
+          {total >= 0 ? "+" : ""}
+          {total.toLocaleString()} pts
+        </strong>
+      </div>
+
+      {confirmingDelete ? (
+        <div className="expanded-actions confirm-row">
+          <span className="confirm-text">Delete this entry?</span>
+          <button className="btn btn-ghost btn-sm" onClick={() => setConfirmingDelete(false)}>
+            Cancel
+          </button>
+          <button className="btn btn-danger btn-sm" onClick={onDelete}>
+            Confirm delete
+          </button>
+        </div>
+      ) : (
+        <div className="expanded-actions">
+          <button className="btn btn-ghost btn-sm expanded-btn" onClick={onEdit}>
+            <Pencil size={14} /> Edit
+          </button>
+          <button className="btn btn-ghost btn-sm expanded-btn danger-text" onClick={() => setConfirmingDelete(true)}>
+            <Trash2 size={14} /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ActivityEditor({ onSave, onCancel, initial }) {
   const [date, setDate] = useState(initial?.date || todayISO());
   const [description, setDescription] = useState(initial?.description || "");
@@ -1947,26 +1996,78 @@ const CSS = `
 }
 .group-subtotal { font-size: 11px; font-weight: 500; color: var(--muted); }
 .year-heading .group-subtotal { font-size: 12px; }
-.log-row {
+.log-row-collapsed {
   display: grid;
-  grid-template-columns: 1fr 74px 62px 44px;
+  grid-template-columns: 1fr 74px 62px 18px;
   gap: 8px;
   align-items: center;
+  width: 100%;
   font-size: 12px;
   color: var(--muted);
-  padding: 8px 2px;
+  padding: 10px 2px;
   border-top: 1px solid var(--line);
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
 }
-.log-row:first-child { border-top: none; }
+.log-row-collapsed:first-child { border-top: none; }
+.log-row-collapsed:hover { background: rgba(255,255,255,0.04); }
+.row-chevron { color: var(--muted); flex-shrink: 0; transition: transform 0.15s ease; }
+.row-chevron.collapsed { transform: rotate(180deg); }
+
+.log-row-expanded {
+  padding: 10px 2px 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.log-row-expanded:first-child { border-top: none; }
+.expanded-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 10.5px;
+}
+.expanded-desc { color: var(--ice); font-size: 13.5px; font-weight: 600; line-height: 1.4; }
+.expanded-breakdown { display: flex; flex-wrap: wrap; gap: 6px; }
+.expanded-pill {
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(255,255,255,0.06);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.expanded-total { font-size: 12.5px; color: var(--muted); }
+.expanded-total strong.pos { color: var(--coral-fg); }
+.expanded-total strong.neg { color: var(--laser-fg); }
+.expanded-actions { display: flex; gap: 8px; margin-top: 2px; }
+.expanded-btn { flex: 1; justify-content: center; }
+.danger-text { color: var(--laser-fg); }
+.danger-text:hover { border-color: var(--laser-fg); color: var(--laser-fg); }
+.btn-danger { background: var(--laser); color: #2b0e0c; }
+.btn-danger:hover { background: #ff6f79; }
+.confirm-row { align-items: center; }
+.confirm-text { font-size: 12.5px; color: var(--ice); flex: 1; }
+
 .tx-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tx-date { font-size: 10.5px; color: var(--muted); }
 .tx-desc { color: var(--ice); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tx-breakdown { font-size: 10.5px; color: var(--muted); }
 .tx-amt { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
 .tx-amt.pos { color: var(--coral-fg); }
 .tx-amt.neg { color: var(--laser-fg); }
 .tx-status { text-align: right; color: var(--fuchsia-fg); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
-.tx-actions { display: flex; gap: 2px; justify-content: flex-end; }
 
 .preview-row { font-size: 12.5px; color: var(--muted); }
 .preview-row strong.pos { color: var(--coral-fg); }
@@ -1982,7 +2083,7 @@ const CSS = `
 
 @media (max-width: 420px) {
   .field-row { flex-direction: column; }
-  .log-row { grid-template-columns: 1fr 56px 44px 40px; font-size: 10.5px; }
+  .log-row-collapsed { grid-template-columns: 1fr 56px 44px 16px; font-size: 10.5px; }
   .totals-grid { grid-template-columns: 1fr; }
 }
 `;
