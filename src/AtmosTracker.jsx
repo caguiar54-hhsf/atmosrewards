@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -23,6 +23,52 @@ const TIERS = [
   { name: "Titanium", threshold: 135000, color: "#b07fd1" },
 ];
 const MILLION_MILER = 1000000;
+
+// Real Atmos Rewards tier benefits, current for 2026.
+const TIER_BENEFITS = {
+  Silver: {
+    highlight: "1 free bag \u00b7 25% bonus",
+    perks: [
+      "1 free checked bag",
+      "25% bonus on redeemable points",
+      "Preferred seating & priority check-in/boarding",
+      "oneworld Ruby status",
+      "Complimentary upgrade eligibility on Alaska, Hawaiian & eligible American flights",
+    ],
+  },
+  Gold: {
+    highlight: "2 free bags \u00b7 50% bonus",
+    perks: [
+      "2 free checked bags",
+      "50% bonus on redeemable points",
+      "Same-day flight changes on eligible flights",
+      "oneworld Sapphire status \u2014 business-class lounge access on eligible international oneworld flights",
+      "Stronger upgrade priority than Silver",
+    ],
+  },
+  Platinum: {
+    highlight: "3 free bags \u00b7 100% bonus",
+    perks: [
+      "3 free checked bags",
+      "100% bonus on redeemable points",
+      "oneworld Emerald status \u2014 first & business-class lounge access on qualifying international oneworld travel",
+      "Highest upgrade & standby priority",
+      "Same-day change/standby fees waived",
+      "First alcoholic beverage free in Main Cabin",
+    ],
+  },
+  Titanium: {
+    highlight: "150% bonus \u00b7 free meal",
+    perks: [
+      "Most Platinum perks, with higher priority",
+      "150% bonus on redeemable points",
+      "Complimentary meal in Main Cabin on every flight",
+      "oneworld Emerald status",
+      "Global upgrade eligibility on select long-haul international routes (extends to one companion)",
+      "Choice of a milestone reward each year (e.g. bonus points, upgrade certificate)",
+    ],
+  },
+};
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -350,6 +396,7 @@ function TierDonut({ tier, statusPoints }) {
         {tier.name}
       </div>
       <div className="tier-donut-sub">{reached ? "Reached" : `${remaining.toLocaleString()} pts left`}</div>
+      {TIER_BENEFITS[tier.name] && <div className="tier-donut-benefit">{TIER_BENEFITS[tier.name].highlight}</div>}
     </div>
   );
 }
@@ -1438,6 +1485,15 @@ export default function AtmosTracker({
             <button
               className="menu-item"
               onClick={() => {
+                setActiveModal("tierBenefits");
+                setMenuOpen(false);
+              }}
+            >
+              <Star size={16} /> Tier benefits
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
                 setActiveModal("goal");
                 setMenuOpen(false);
               }}
@@ -1563,6 +1619,29 @@ export default function AtmosTracker({
             }}
             onCancel={() => setActiveModal(null)}
           />
+        </Modal>
+      )}
+
+      {activeModal === "tierBenefits" && (
+        <Modal title="Tier benefits" onClose={() => setActiveModal(null)}>
+          <div className="tier-benefits">
+            {TIERS.map((tier) => (
+              <div className="tier-benefit-card" key={tier.name}>
+                <div className="tier-benefit-head" style={{ color: tier.color, borderColor: tier.color }}>
+                  {tier.name} <span className="tier-benefit-threshold">{tier.threshold.toLocaleString()} pts</span>
+                </div>
+                <ul className="tier-benefit-list">
+                  {TIER_BENEFITS[tier.name].perks.map((perk, i) => (
+                    <li key={i}>{perk}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <p className="hint" style={{ margin: 0 }}>
+              Million Miler: reaching 1,000,000 lifetime miles grants lifetime Atmos Gold status;
+              2,000,000 lifetime miles grants lifetime Atmos Platinum.
+            </p>
+          </div>
         </Modal>
       )}
 
@@ -2314,6 +2393,28 @@ const CSS = `
 }
 .review-stat-label { font-size: 11px; color: var(--muted); }
 
+.tier-benefits { display: flex; flex-direction: column; gap: 12px; }
+.tier-benefit-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.tier-benefit-head {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  border-bottom: 1px solid;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.tier-benefit-threshold { font-size: 11px; font-weight: 500; color: var(--muted); }
+.tier-benefit-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.tier-benefit-list li { font-size: 12.5px; color: var(--ice); line-height: 1.4; }
+
 .board-main { padding: 14px 16px 100px 16px; }
 .panel { display: flex; flex-direction: column; gap: 12px; }
 
@@ -2422,6 +2523,7 @@ const CSS = `
   margin-top: -4px;
 }
 .tier-donut-sub { font-size: 10.5px; color: var(--muted); }
+.tier-donut-benefit { font-size: 10px; color: var(--muted); opacity: 0.85; margin-top: 1px; }
 
 .goal-card, .status-card {
   background: var(--bg-surface);
