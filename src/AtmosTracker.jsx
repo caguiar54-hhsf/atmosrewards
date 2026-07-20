@@ -1339,7 +1339,12 @@ export default function AtmosTracker({
                   <div className="goal-bar">
                     <div
                       className="goal-bar-fill status-fill"
-                      style={{ width: `${tierInfo.pct}%`, background: tierInfo.next?.color || tierInfo.current?.color || "#00B140" }}
+                      style={{
+                        width: `${tierInfo.pct}%`,
+                        background: `linear-gradient(90deg, ${tierInfo.current?.color || "#8592a1"}, ${
+                          tierInfo.next?.color || tierInfo.current?.color || TIERS[0].color
+                        })`,
+                      }}
                     />
                   </div>
                   <div className="goal-foot">
@@ -2825,6 +2830,10 @@ const CSS = `
   font-size: 14px;
   color: var(--ice);
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  display: block;
+  box-sizing: border-box;
 }
 .field input:disabled { opacity: 0.4; }
 .field-inline { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); font-weight: 500; }
