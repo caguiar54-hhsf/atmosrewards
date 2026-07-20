@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -249,6 +249,8 @@ export default function AtmosTracker() {
   const [openingBalance, setOpeningBalance] = useState(null);
   const [adding, setAdding] = useState(false);
   const [editingTxId, setEditingTxId] = useState(null);
+  const [collapsedYears, setCollapsedYears] = useState(() => new Set());
+  const [collapsedMonths, setCollapsedMonths] = useState(() => new Set());
   const [editingGoal, setEditingGoal] = useState(false);
   const [editingOpening, setEditingOpening] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -284,6 +286,23 @@ export default function AtmosTracker() {
   const persistOpening = (next) => {
     setOpeningBalance(next);
     saveOpeningBalance(next);
+  };
+
+  const toggleYear = (year) => {
+    setCollapsedYears((prev) => {
+      const next = new Set(prev);
+      if (next.has(year)) next.delete(year);
+      else next.add(year);
+      return next;
+    });
+  };
+  const toggleMonth = (key) => {
+    setCollapsedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const handleImportFile = (file) => {
@@ -787,31 +806,57 @@ export default function AtmosTracker() {
               <div className="activity-groups">
                 {groupedActivity.invalidItems.length > 0 && (
                   <div className="year-group">
-                    <div className="year-heading">
-                      <span>Unknown date</span>
-                    </div>
-                    <div className="log-list">{groupedActivity.invalidItems.map((t) => renderActivityRow(t))}</div>
+                    <button
+                      className="group-heading year-heading"
+                      onClick={() => toggleYear("invalid")}
+                      aria-expanded={!collapsedYears.has("invalid")}
+                    >
+                      <span className="group-heading-left">
+                        <ChevronDown size={14} className={`chevron ${collapsedYears.has("invalid") ? "collapsed" : ""}`} />
+                        Unknown date
+                      </span>
+                    </button>
+                    {!collapsedYears.has("invalid") && (
+                      <div className="log-list">{groupedActivity.invalidItems.map((t) => renderActivityRow(t))}</div>
+                    )}
                   </div>
                 )}
                 {groupedActivity.years.map((yg) => (
                   <div className="year-group" key={yg.year}>
-                    <div className="year-heading">
-                      <span>{yg.year}</span>
+                    <button
+                      className="group-heading year-heading"
+                      onClick={() => toggleYear(yg.year)}
+                      aria-expanded={!collapsedYears.has(yg.year)}
+                    >
+                      <span className="group-heading-left">
+                        <ChevronDown size={14} className={`chevron ${collapsedYears.has(yg.year) ? "collapsed" : ""}`} />
+                        {yg.year}
+                      </span>
                       <span className="group-subtotal">
                         {fmtSigned(yg.pts)} pts &middot; {fmtSigned(yg.sp)} sp
                       </span>
-                    </div>
-                    {yg.months.map((mg) => (
-                      <div className="month-group" key={mg.key}>
-                        <div className="month-heading">
-                          <span>{mg.label}</span>
-                          <span className="group-subtotal">
-                            {fmtSigned(mg.pts)} pts &middot; {fmtSigned(mg.sp)} sp
-                          </span>
+                    </button>
+                    {!collapsedYears.has(yg.year) &&
+                      yg.months.map((mg) => (
+                        <div className="month-group" key={mg.key}>
+                          <button
+                            className="group-heading month-heading"
+                            onClick={() => toggleMonth(mg.key)}
+                            aria-expanded={!collapsedMonths.has(mg.key)}
+                          >
+                            <span className="group-heading-left">
+                              <ChevronDown size={12} className={`chevron ${collapsedMonths.has(mg.key) ? "collapsed" : ""}`} />
+                              {mg.label}
+                            </span>
+                            <span className="group-subtotal">
+                              {fmtSigned(mg.pts)} pts &middot; {fmtSigned(mg.sp)} sp
+                            </span>
+                          </button>
+                          {!collapsedMonths.has(mg.key) && (
+                            <div className="log-list">{mg.items.map((t) => renderActivityRow(t))}</div>
+                          )}
                         </div>
-                        <div className="log-list">{mg.items.map((t) => renderActivityRow(t))}</div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 ))}
               </div>
@@ -1246,25 +1291,33 @@ const CSS = `
 
 .activity-groups { display: flex; flex-direction: column; gap: 16px; }
 .year-group { display: flex; flex-direction: column; gap: 8px; }
-.year-heading {
+.group-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+}
+.group-heading-left { display: flex; align-items: center; gap: 6px; }
+.chevron { transition: transform 0.15s ease; flex-shrink: 0; color: var(--muted); }
+.chevron.collapsed { transform: rotate(-90deg); }
+.year-heading {
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
   font-size: 15px;
   color: var(--ice);
-  padding: 0 2px;
 }
 .month-group { display: flex; flex-direction: column; gap: 4px; }
 .month-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
-  padding: 0 2px;
 }
 .group-subtotal { font-size: 11px; font-weight: 500; color: var(--muted); }
 .year-heading .group-subtotal { font-size: 12px; }
