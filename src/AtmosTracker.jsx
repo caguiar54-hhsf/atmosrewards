@@ -2457,7 +2457,7 @@ const CSS = `
   height: 100%;
   background: var(--bg-surface);
   border-left: 1px solid var(--line);
-  padding: 20px 14px;
+  padding: calc(20px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom)) 14px;
   display: flex;
   flex-direction: column;
   gap: 2px;
