@@ -2168,14 +2168,19 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete }) {
       </div>
 
       {flightIdent && (
-        <a
-          className="flightaware-link"
-          href={`https://www.flightaware.com/live/flight/${flightIdent}/history`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Plane size={13} /> View {flightIdent} on FlightAware
-        </a>
+        <>
+          <a
+            className="flightaware-link"
+            href={`https://www.flightaware.com/live/flight/${flightIdent}/history`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Plane size={13} /> View {flightIdent} on FlightAware
+          </a>
+          <p className="flightaware-hint">
+            Opens a history list for {flightIdent} &mdash; look for {isValidISODate(t.date) ? fmtDate(t.date) : "this date"} in the table.
+          </p>
+        </>
       )}
 
       {confirmingDelete ? (
@@ -3030,6 +3035,7 @@ const CSS = `
   width: fit-content;
 }
 .flightaware-link:hover { text-decoration: underline; }
+.flightaware-hint { font-size: 10.5px; color: var(--muted); margin: 2px 0 0; }
 .expanded-actions { display: flex; gap: 8px; margin-top: 2px; }
 .expanded-btn { flex: 1; justify-content: center; }
 .danger-text { color: var(--laser-fg); }
