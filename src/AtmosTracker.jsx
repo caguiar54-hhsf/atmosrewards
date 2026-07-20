@@ -9,6 +9,9 @@ import {
   ResponsiveContainer,
   CartesianGrid,
   ReferenceLine,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 
 // ---------- Atmos Rewards program constants (2026) ----------
@@ -186,6 +189,49 @@ function FlapNumber({ value }) {
         </span>
       ))}
     </span>
+  );
+}
+
+// Small donut showing progress toward one tier's status-point threshold, with points
+// remaining (or "Reached") underneath.
+function TierDonut({ tier, statusPoints }) {
+  const achieved = Math.min(statusPoints, tier.threshold);
+  const remaining = Math.max(0, tier.threshold - statusPoints);
+  const reached = statusPoints >= tier.threshold;
+  const data = [
+    { name: "achieved", value: achieved },
+    { name: "remaining", value: remaining || 0.0001 },
+  ];
+  return (
+    <div className="tier-donut">
+      <div className="tier-donut-chart">
+        <ResponsiveContainer width="100%" height={92}>
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              startAngle={90}
+              endAngle={-270}
+              innerRadius={28}
+              outerRadius={40}
+              paddingAngle={reached ? 0 : 2}
+              stroke="none"
+              isAnimationActive={false}
+            >
+              <Cell fill={tier.color} />
+              <Cell fill="rgba(255,255,255,0.14)" />
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="tier-donut-center" style={{ color: tier.color }}>
+          {reached ? <Check size={18} /> : `${Math.round((achieved / tier.threshold) * 100)}%`}
+        </div>
+      </div>
+      <div className="tier-donut-name" style={{ color: tier.color }}>
+        {tier.name}
+      </div>
+      <div className="tier-donut-sub">{reached ? "Reached" : `${remaining.toLocaleString()} pts left`}</div>
+    </div>
   );
 }
 
@@ -507,7 +553,7 @@ export default function AtmosTracker() {
       <header className="board-header">
         <div className="board-brand">
           {logoFailed ? (
-            <Sparkles size={40} strokeWidth={2} />
+            <Sparkles size={64} strokeWidth={1.6} />
           ) : (
             <img
               src="/b31sb3lrs6tg1.png"
@@ -691,6 +737,14 @@ export default function AtmosTracker() {
                 </>
               )}
             </div>
+
+            {viewYear !== "all" && (
+              <div className="tier-donut-grid">
+                {TIERS.map((tier) => (
+                  <TierDonut key={tier.name} tier={tier} statusPoints={statusForViewYear} />
+                ))}
+              </div>
+            )}
 
             {statusChart.length > 1 && (
               <div className="chart-wrap">
@@ -1108,7 +1162,7 @@ const CSS = `
   gap: 8px;
 }
 .board-brand svg { color: var(--ice); }
-.brand-logo { height: 48px; width: auto; display: block; border-radius: 6px; }
+.brand-logo { height: 120px; width: auto; display: block; border-radius: 6px; }
 .brand-title {
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
@@ -1169,6 +1223,42 @@ const CSS = `
 }
 @media (prefers-reduced-motion: reduce) { .flap-digit { animation: none; } }
 @keyframes flapin { 0% { transform: rotateX(70deg); opacity: 0.3; } 100% { transform: rotateX(0deg); opacity: 1; } }
+
+.tier-donut-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.tier-donut {
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 6px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.tier-donut-chart { position: relative; width: 100%; }
+.tier-donut-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tier-donut-name {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 12.5px;
+  margin-top: -4px;
+}
+.tier-donut-sub { font-size: 10.5px; color: var(--muted); }
 
 .goal-card, .status-card {
   background: var(--bg-surface);
