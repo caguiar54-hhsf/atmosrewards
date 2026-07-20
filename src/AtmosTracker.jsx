@@ -659,6 +659,11 @@ export default function AtmosTracker({
   const [expandedTxId, setExpandedTxId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [dismissedReminders, setDismissedReminders] = useState(() => new Set());
+  const [pullDisplay, setPullDisplay] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const pullDistance = useRef(0);
+  const pullActive = useRef(false);
+  const touchStartY = useRef(0);
   const [collapsedYears, setCollapsedYears] = useState(() => new Set());
   const [collapsedMonths, setCollapsedMonths] = useState(() => new Set());
   const [importResult, setImportResult] = useState(null);
@@ -710,6 +715,70 @@ export default function AtmosTracker({
       });
     }
   }, [loaded, transactions]);
+
+  const doRefresh = async () => {
+    const [tx, g, ob, ls] = await Promise.all([loadTx(), loadGoal(), loadOpeningBalance(), loadLifetimeStart()]);
+    setTransactions(tx);
+    setGoal(g);
+    setOpeningBalance(ob);
+    setLifetimeStart(ls);
+    if ("serviceWorker" in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) await reg.update();
+      } catch {
+        /* no service worker in this context (e.g. Claude preview) — fine to ignore */
+      }
+    }
+  };
+
+  // Pull-to-refresh: only engages when already scrolled to the very top, so it never
+  // fights with normal scrolling further down the page.
+  useEffect(() => {
+    const PULL_THRESHOLD = 64;
+    const onTouchStart = (e) => {
+      if (window.scrollY <= 0 && !refreshing) {
+        touchStartY.current = e.touches[0].clientY;
+        pullActive.current = true;
+      } else {
+        pullActive.current = false;
+      }
+    };
+    const onTouchMove = (e) => {
+      if (!pullActive.current) return;
+      const delta = e.touches[0].clientY - touchStartY.current;
+      if (delta > 0 && window.scrollY <= 0) {
+        const damped = Math.min(delta * 0.5, 90);
+        pullDistance.current = damped;
+        setPullDisplay(damped);
+        if (delta > 10 && e.cancelable) e.preventDefault();
+      } else {
+        pullActive.current = false;
+        pullDistance.current = 0;
+        setPullDisplay(0);
+      }
+    };
+    const onTouchEnd = async () => {
+      if (!pullActive.current) return;
+      pullActive.current = false;
+      if (pullDistance.current > PULL_THRESHOLD) {
+        setRefreshing(true);
+        setPullDisplay(50);
+        await doRefresh();
+        setRefreshing(false);
+      }
+      pullDistance.current = 0;
+      setPullDisplay(0);
+    };
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onTouchEnd);
+    return () => {
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [refreshing]);
 
   const persistTx = (next) => {
     setTransactions(next);
@@ -809,6 +878,13 @@ export default function AtmosTracker({
   const confirmedTransactions = useMemo(() => transactions.filter((t) => !t.planned), [transactions]);
   const plannedTransactions = useMemo(() => transactions.filter((t) => t.planned), [transactions]);
   const reviewTransactions = useMemo(() => transactions.filter((t) => t.statusUnconfirmed && !t.planned), [transactions]);
+  const upcomingTotals = useMemo(
+    () => ({
+      pts: plannedTransactions.reduce((s, t) => s + pointsDelta(t), 0),
+      sp: plannedTransactions.reduce((s, t) => s + statusDelta(t), 0),
+    }),
+    [plannedTransactions]
+  );
 
   const balance = useMemo(
     () => (openingBalance?.amount || 0) + confirmedTransactions.reduce((s, t) => s + pointsDelta(t), 0),
@@ -1192,6 +1268,17 @@ export default function AtmosTracker({
         </div>
       )}
 
+      {(pullDisplay > 0 || refreshing) && (
+        <div className="pull-indicator" style={{ height: refreshing ? 50 : pullDisplay }}>
+          <Loader2
+            size={18}
+            className={refreshing || pullDisplay > 64 ? "spin" : ""}
+            style={refreshing ? undefined : { transform: `rotate(${pullDisplay * 3}deg)` }}
+          />
+          <span>{refreshing ? "Refreshing\u2026" : pullDisplay > 64 ? "Release to refresh" : "Pull to refresh"}</span>
+        </div>
+      )}
+
       <main className="board-main">
         {!loaded ? (
           <div className="loading-row">
@@ -1430,13 +1517,30 @@ export default function AtmosTracker({
 
             {plannedTransactions.length > 0 && (
               <div className="upcoming-section">
-                <div className="upcoming-heading">
-                  Upcoming trips <span className="group-subtotal">not yet counted toward your totals</span>
-                </div>
-                {plannedTransactions
-                  .slice()
-                  .sort((a, b) => (a.date < b.date ? -1 : 1))
-                  .map((t) => renderPlannedRow(t))}
+                <button
+                  className="group-heading year-heading"
+                  onClick={() => toggleYear("upcoming")}
+                  aria-expanded={!collapsedYears.has("upcoming")}
+                >
+                  <span className="group-heading-left">
+                    <ChevronDown size={14} className={`chevron ${collapsedYears.has("upcoming") ? "collapsed" : ""}`} />
+                    Upcoming trips
+                  </span>
+                  <span className="group-subtotal">
+                    {fmtSigned(upcomingTotals.pts)} pts &middot; {fmtSigned(upcomingTotals.sp)} sp
+                  </span>
+                </button>
+                {!collapsedYears.has("upcoming") && (
+                  <>
+                    <p className="hint" style={{ margin: "-4px 0 0" }}>
+                      Not yet counted toward your totals.
+                    </p>
+                    {plannedTransactions
+                      .slice()
+                      .sort((a, b) => (a.date < b.date ? -1 : 1))
+                      .map((t) => renderPlannedRow(t))}
+                  </>
+                )}
               </div>
             )}
 
@@ -2448,6 +2552,18 @@ const CSS = `
 }
 .reminder-banner strong { color: var(--fuchsia-fg); }
 .reminder-urgent { background: rgba(227, 38, 54, 0.14); border-color: var(--laser); }
+
+.pull-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  transition: height 0.15s ease;
+}
 
 .fab {
   position: fixed;
