@@ -134,6 +134,13 @@ const monthLabelLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("
 const fmtSigned = (n) => `${n >= 0 ? "+" : ""}${n.toLocaleString()}`;
 const fmtAxisK = (v) => (v === 0 ? "0" : Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}K` : `${v}`);
 
+// Pulls a flight number like "AS1092" or "HA1082" out of a description string, so we can
+// deep-link to FlightAware without needing any API or account.
+function extractFlightIdent(description) {
+  const m = (description || "").match(/\b([A-Z]{2}\d{2,4})\b/);
+  return m ? m[1] : null;
+}
+
 function topRouteFromEntries(entries) {
   const counts = new Map();
   for (const t of entries) {
@@ -2110,6 +2117,7 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const total = pointsDelta(t);
   const sp = statusDelta(t);
+  const flightIdent = t.sign !== "redeem" ? extractFlightIdent(t.description) : null;
 
   if (!expanded) {
     return (
@@ -2158,6 +2166,17 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete }) {
           {total.toLocaleString()} pts
         </strong>
       </div>
+
+      {flightIdent && (
+        <a
+          className="flightaware-link"
+          href={`https://www.flightaware.com/live/flight/${flightIdent}/history`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Plane size={13} /> View {flightIdent} on FlightAware
+        </a>
+      )}
 
       {confirmingDelete ? (
         <div className="expanded-actions confirm-row">
@@ -2994,6 +3013,17 @@ const CSS = `
 .expanded-total { font-size: 12.5px; color: var(--muted); }
 .expanded-total strong.pos { color: var(--coral-fg); }
 .expanded-total strong.neg { color: var(--laser-fg); }
+.flightaware-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fuchsia-fg);
+  text-decoration: none;
+  font-weight: 600;
+  width: fit-content;
+}
+.flightaware-link:hover { text-decoration: underline; }
 .expanded-actions { display: flex; gap: 8px; margin-top: 2px; }
 .expanded-btn { flex: 1; justify-content: center; }
 .danger-text { color: var(--laser-fg); }
