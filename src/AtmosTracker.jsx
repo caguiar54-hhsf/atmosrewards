@@ -118,7 +118,10 @@ const statusDelta = (t) => (t.sign === "redeem" ? 0 : t.statusPoints || 0);
 // Simple CSV parser: header row + comma-separated values. Handles quoted fields (for
 // descriptions that might contain a comma) but assumes no embedded newlines in a field.
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  // Excel/Numbers often prefix CSV exports with a UTF-8 BOM, which otherwise corrupts the
+  // first header cell (e.g. "date" silently becomes "\uFEFFdate" and never matches).
+  const clean = text.replace(/^\uFEFF/, "");
+  const lines = clean.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length < 2) return [];
   const splitLine = (line) => {
     const cells = [];
@@ -147,12 +150,31 @@ function parseCSV(text) {
   });
 }
 
+// Accepts either ISO (2026-07-16) or US-style (7/16/2026 or 07/16/2026) dates — Excel and
+// Numbers both default to the latter when exporting CSV.
+function normalizeDateToISO(raw) {
+  const s = (raw || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const [, mo, day, yr] = m;
+    return `${yr}-${mo.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  return s;
+}
+
 function csvRowToTx(row) {
-  const num = (v) => Number(v) || 0;
+  // Strips thousands-separator commas (e.g. "1,000") before parsing — common when a CSV
+  // has been opened and re-saved in Excel, which reformats plain numbers that way.
+  const num = (v) => {
+    const cleaned = String(v ?? "").replace(/,/g, "").trim();
+    const n = Number(cleaned);
+    return isNaN(n) ? 0 : n;
+  };
   const redeemPoints = num(row.redeempoints);
   const sign = redeemPoints > 0 ? "redeem" : "earn";
   return {
-    date: row.date,
+    date: normalizeDateToISO(row.date),
     description: row.description || "Imported activity",
     sign,
     flightPoints: sign === "earn" ? num(row.flightpoints) : 0,
@@ -498,13 +520,37 @@ export default function AtmosTracker({
     reader.onload = () => {
       try {
         const rows = parseCSV(String(reader.result));
+        if (rows.length === 0) {
+          setImportResult({
+            added: 0,
+            skipped: 0,
+            error: "No rows found — check the file has a header row plus at least one data row.",
+          });
+          return;
+        }
         const existingKeys = new Set(transactions.map(txDedupeKey));
         let added = 0;
         let skipped = 0;
+        let noDate = 0;
+        let badDate = 0;
         const newTx = [];
         for (const row of rows) {
-          if (!row.date) continue;
+          if (row.date === undefined) {
+            // The "date" column itself wasn't found — almost always a header-naming
+            // mismatch (or a BOM that slipped through), not a per-row problem.
+            noDate++;
+            continue;
+          }
           const tx = csvRowToTx(row);
+          if (!tx.date) {
+            noDate++;
+            continue;
+          }
+          if (!isValidISODate(tx.date)) {
+            badDate++;
+            // Still imported — it'll show up under "Unknown date" so it can be fixed
+            // in place rather than silently vanishing.
+          }
           const key = txDedupeKey(tx);
           if (existingKeys.has(key)) {
             skipped++;
@@ -517,7 +563,7 @@ export default function AtmosTracker({
         if (newTx.length) {
           persistTx([...transactions, ...newTx]);
         }
-        setImportResult({ added, skipped, error: null });
+        setImportResult({ added, skipped, noDate, badDate, error: null });
       } catch (e) {
         setImportResult({ added: 0, skipped: 0, error: "Couldn't read that file as CSV." });
       }
@@ -1355,7 +1401,14 @@ export default function AtmosTracker({
                 ) : (
                   <>
                     <Check size={13} /> Added {importResult.added.toLocaleString()} new
-                    {importResult.skipped ? `, skipped ${importResult.skipped.toLocaleString()} already logged` : ""}.
+                    {importResult.skipped ? `, skipped ${importResult.skipped.toLocaleString()} already logged` : ""}
+                    {importResult.badDate
+                      ? `, ${importResult.badDate.toLocaleString()} added with an unrecognized date (check "Unknown date" in Activity)`
+                      : ""}
+                    {importResult.noDate
+                      ? `, ${importResult.noDate.toLocaleString()} skipped with no date at all`
+                      : ""}
+                    .
                   </>
                 )}
               </div>
