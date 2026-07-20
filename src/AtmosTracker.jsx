@@ -2834,6 +2834,13 @@ const CSS = `
   max-width: 100%;
   display: block;
   box-sizing: border-box;
+  -webkit-min-logical-width: 0%;
+}
+.field input[type="date"] {
+  padding-right: 6px;
+}
+.field input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
 }
 .field input:disabled { opacity: 0.4; }
 .field-inline { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); font-weight: 500; }
