@@ -25,6 +25,9 @@ const TIERS = [
 const MILLION_MILER = 1000000;
 
 // Real Atmos Rewards tier benefits, current for 2026.
+// oneworld alliance tier each Atmos level carries.
+const ONEWORLD_TIER = { Silver: "Ruby", Gold: "Sapphire", Platinum: "Emerald", Titanium: "Emerald" };
+
 const TIER_BENEFITS = {
   Silver: {
     highlight: "1 free bag \u00b7 25% bonus",
@@ -32,7 +35,7 @@ const TIER_BENEFITS = {
       "1 free checked bag",
       "25% bonus on redeemable points",
       "Preferred seating & priority check-in/boarding",
-      "oneworld Ruby status",
+      "Priority check-in & boarding across oneworld airlines",
       "Complimentary upgrade eligibility on Alaska, Hawaiian & eligible American flights",
     ],
   },
@@ -42,7 +45,7 @@ const TIER_BENEFITS = {
       "2 free checked bags",
       "50% bonus on redeemable points",
       "Same-day flight changes on eligible flights",
-      "oneworld Sapphire status \u2014 business-class lounge access on eligible international oneworld flights",
+      "Business-class lounge access on eligible international oneworld flights",
       "Stronger upgrade priority than Silver",
     ],
   },
@@ -51,7 +54,7 @@ const TIER_BENEFITS = {
     perks: [
       "3 free checked bags",
       "100% bonus on redeemable points",
-      "oneworld Emerald status \u2014 first & business-class lounge access on qualifying international oneworld travel",
+      "First & business-class lounge access on qualifying international oneworld travel",
       "Highest upgrade & standby priority",
       "Same-day change/standby fees waived",
       "First alcoholic beverage free in Main Cabin",
@@ -63,7 +66,7 @@ const TIER_BENEFITS = {
       "Most Platinum perks, with higher priority",
       "150% bonus on redeemable points",
       "Complimentary meal in Main Cabin on every flight",
-      "oneworld Emerald status",
+      "Highest oneworld lounge & priority tier",
       "Global upgrade eligibility on select long-haul international routes (extends to one companion)",
       "Choice of a milestone reward each year (e.g. bonus points, upgrade certificate)",
     ],
@@ -1190,11 +1193,16 @@ export default function AtmosTracker({
               <div className="status-head">
                 <span className="card-label">{viewYear === "all" ? "All-time" : viewYear} status</span>
                 {viewYear !== "all" && (
-                  <span
-                    className="tier-badge"
-                    style={{ color: tierInfo.current?.color || "#aebdc9", borderColor: tierInfo.current?.color || "rgba(255,255,255,0.16)" }}
-                  >
-                    {tierInfo.current ? tierInfo.current.name : "No tier yet"}
+                  <span className="tier-badge-group">
+                    <span
+                      className="tier-badge"
+                      style={{ color: tierInfo.current?.color || "#aebdc9", borderColor: tierInfo.current?.color || "rgba(255,255,255,0.16)" }}
+                    >
+                      {tierInfo.current ? tierInfo.current.name : "No tier yet"}
+                    </span>
+                    {tierInfo.current && ONEWORLD_TIER[tierInfo.current.name] && (
+                      <span className="oneworld-badge">oneworld {ONEWORLD_TIER[tierInfo.current.name]}</span>
+                    )}
                   </span>
                 )}
               </div>
@@ -1628,7 +1636,10 @@ export default function AtmosTracker({
             {TIERS.map((tier) => (
               <div className="tier-benefit-card" key={tier.name}>
                 <div className="tier-benefit-head" style={{ color: tier.color, borderColor: tier.color }}>
-                  {tier.name} <span className="tier-benefit-threshold">{tier.threshold.toLocaleString()} pts</span>
+                  <span>
+                    {tier.name} <span className="oneworld-badge">oneworld {ONEWORLD_TIER[tier.name]}</span>
+                  </span>
+                  <span className="tier-benefit-threshold">{tier.threshold.toLocaleString()} pts</span>
                 </div>
                 <ul className="tier-benefit-list">
                   {TIER_BENEFITS[tier.name].perks.map((perk, i) => (
@@ -2543,6 +2554,16 @@ const CSS = `
   border: 1px solid;
   border-radius: 20px;
   padding: 3px 10px;
+}
+.tier-badge-group { display: flex; align-items: center; gap: 6px; }
+.oneworld-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255,255,255,0.08);
+  border-radius: 20px;
+  padding: 3px 9px;
+  white-space: nowrap;
 }
 .status-number { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; color: var(--ice); }
 .goal-bar { height: 8px; background: var(--bg-surface-2); border-radius: 5px; overflow: hidden; }
