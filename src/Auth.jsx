@@ -9,6 +9,7 @@ export default function Auth({ mode: initialMode = "signin" }) {
   const [confirm, setConfirm] = useState("");
   const [status, setStatus] = useState("idle"); // idle | busy | done | error
   const [message, setMessage] = useState("");
+  const [logoFailed, setLogoFailed] = useState(false);
 
   const reset = () => {
     setStatus("idle");
@@ -108,6 +109,14 @@ export default function Auth({ mode: initialMode = "signin" }) {
   return (
     <div style={styles.wrap}>
       <div style={styles.card}>
+        {logoFailed ? null : (
+          <img
+            src="/b31sb3lrs6tg1.png"
+            alt=""
+            style={styles.logo}
+            onError={() => setLogoFailed(true)}
+          />
+        )}
         <h1 style={styles.title}>Atmos Tracker</h1>
         <p style={styles.sub}>{titles[mode]}</p>
 
@@ -205,7 +214,9 @@ const styles = {
     width: 320,
     maxWidth: "100%",
     color: "#f8f6fd",
+    textAlign: "center",
   },
+  logo: { width: 200, height: "auto", display: "block", margin: "0 auto 16px", borderRadius: 8 },
   title: { margin: "0 0 4px 0", fontSize: 20, fontWeight: 700 },
   sub: { margin: "0 0 18px 0", fontSize: 13, color: "#d3c6ec" },
   form: { display: "flex", flexDirection: "column", gap: 10 },

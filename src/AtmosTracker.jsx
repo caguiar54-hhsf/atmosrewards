@@ -70,17 +70,20 @@ function downloadTextFile(filename, content, mime) {
 }
 
 function transactionsToCSV(transactions) {
-  const header = "date,description,flightPoints,bonusPoints,statusPoints,redeemPoints";
+  const header = "date,description,flightPoints,bonusPoints,statusPoints,redeemPoints,notes";
+  const quoteField = (v) => {
+    const s = (v || "").replace(/"/g, '""');
+    return s.includes(",") ? `"${s}"` : s;
+  };
   const rows = transactions.map((t) => {
-    const desc = (t.description || "").replace(/"/g, '""');
-    const descField = desc.includes(",") ? `"${desc}"` : desc;
     return [
       t.date || "",
-      descField,
+      quoteField(t.description),
       t.sign === "redeem" ? 0 : t.flightPoints || 0,
       t.sign === "redeem" ? 0 : (t.bonusPoints || 0) + (t.nonStatusPoints || 0),
       t.sign === "redeem" ? 0 : t.statusPoints || 0,
       t.sign === "redeem" ? t.redeemPoints || 0 : 0,
+      quoteField(t.notes),
     ].join(",");
   });
   return [header, ...rows].join("\n");
@@ -228,6 +231,7 @@ function csvRowToTx(row) {
     bonusPoints: sign === "earn" ? num(row.bonuspoints) : 0,
     statusPoints: sign === "earn" ? num(row.statuspoints) : 0,
     redeemPoints: sign === "redeem" ? redeemPoints : 0,
+    notes: row.notes || "",
   };
 }
 
@@ -778,7 +782,12 @@ export default function AtmosTracker({
   // points/status-points subtotal for its own entries.
   const groupedActivity = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const source = q ? sorted.filter((t) => (t.description || "").toLowerCase().includes(q)) : sorted;
+    const source = q
+      ? sorted.filter(
+          (t) =>
+            (t.description || "").toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q)
+        )
+      : sorted;
     const byYear = new Map();
     for (const t of source) {
       if (!isValidISODate(t.date)) continue;
@@ -1247,7 +1256,7 @@ export default function AtmosTracker({
               <input
                 type="text"
                 className="search-input"
-                placeholder="Search activity..."
+                placeholder="Search activity or notes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -1490,7 +1499,7 @@ export default function AtmosTracker({
             <p className="hint" style={{ margin: 0 }}>
               Upload a CSV exported straight from alaskaair.com (Date, Activity, Points, Bonus
               Points, Status Points), or one in this app's own format (
-              <code>date, description, flightPoints, bonusPoints, statusPoints, redeemPoints</code>
+              <code>date, description, flightPoints, bonusPoints, statusPoints, redeemPoints, notes</code>
               ). Rows matching an entry you've already logged are skipped automatically, and any
               flight showing 0 status points gets flagged for you to confirm instead of trusted
               as-is.
@@ -1894,6 +1903,7 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete }) {
         <ChevronDown size={14} className="row-chevron collapsed" />
       </button>
       <div className="expanded-desc">{t.description}</div>
+      {t.notes && <div className="expanded-notes">{t.notes}</div>}
       <div className="expanded-breakdown">
         {t.sign === "redeem" ? (
           <span className="expanded-pill">Redeemed {Math.abs(total).toLocaleString()} pts</span>
@@ -1950,6 +1960,7 @@ function ActivityEditor({ onSave, onCancel, initial }) {
   const [statusPoints, setStatusPoints] = useState(initial?.statusPoints || "");
   const [redeemPoints, setRedeemPoints] = useState(initial?.redeemPoints || "");
   const [planned, setPlanned] = useState(initial?.planned || false);
+  const [notes, setNotes] = useState(initial?.notes || "");
 
   const fp = Number(flightPoints) || 0;
   const bp = Number(bonusPoints) || 0;
@@ -1970,6 +1981,7 @@ function ActivityEditor({ onSave, onCancel, initial }) {
       statusPoints: sign === "earn" ? sp : 0,
       redeemPoints: sign === "redeem" ? rp : 0,
       planned: sign === "earn" ? planned : false,
+      notes: notes.trim(),
     });
   };
 
@@ -1995,6 +2007,15 @@ function ActivityEditor({ onSave, onCancel, initial }) {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Alaska Airlines HNL-ITO AS1092"
+        />
+      </label>
+
+      <label className="field">
+        <span>Notes (optional)</span>
+        <input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="e.g. family trip, upgraded to first"
         />
       </label>
 
@@ -2659,6 +2680,7 @@ const CSS = `
 }
 .expanded-desc { color: var(--ice); font-size: 13.5px; font-weight: 600; line-height: 1.4; }
 .expanded-breakdown { display: flex; flex-wrap: wrap; gap: 6px; }
+.expanded-notes { font-size: 12px; color: var(--muted); font-style: italic; }
 .expanded-pill {
   font-size: 11px;
   color: var(--muted);
