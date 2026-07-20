@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star, MapPin } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -27,6 +27,52 @@ const MILLION_MILER = 1000000;
 // Real Atmos Rewards tier benefits, current for 2026.
 // oneworld alliance tier each Atmos level carries.
 const ONEWORLD_TIER = { Silver: "Ruby", Gold: "Sapphire", Platinum: "Emerald", Titanium: "Emerald" };
+
+// Airport codes covering Alaska & Hawaiian's route network plus major oneworld hubs —
+// enough to cover almost anything that shows up in a real Atmos activity description.
+const AIRPORTS = [
+  ["ANC", "Anchorage, AK"], ["FAI", "Fairbanks, AK"], ["JNU", "Juneau, AK"], ["KTN", "Ketchikan, AK"],
+  ["SIT", "Sitka, AK"], ["ADQ", "Kodiak, AK"], ["BET", "Bethel, AK"], ["OTZ", "Kotzebue, AK"],
+  ["OME", "Nome, AK"], ["BRW", "Utqiagvik (Barrow), AK"], ["CDV", "Cordova, AK"], ["YAK", "Yakutat, AK"],
+  ["PSG", "Petersburg, AK"], ["WRG", "Wrangell, AK"], ["SEA", "Seattle, WA"], ["PDX", "Portland, OR"],
+  ["GEG", "Spokane, WA"], ["BLI", "Bellingham, WA"], ["EUG", "Eugene, OR"], ["RDM", "Redmond/Bend, OR"],
+  ["MFR", "Medford, OR"], ["BOI", "Boise, ID"], ["SFO", "San Francisco, CA"], ["OAK", "Oakland, CA"],
+  ["SJC", "San Jose, CA"], ["SAC", "Sacramento, CA"], ["LAX", "Los Angeles, CA"], ["SAN", "San Diego, CA"],
+  ["SNA", "Orange County (Santa Ana), CA"], ["BUR", "Burbank, CA"], ["ONT", "Ontario, CA"],
+  ["FAT", "Fresno, CA"], ["SBA", "Santa Barbara, CA"], ["LGB", "Long Beach, CA"], ["PSP", "Palm Springs, CA"],
+  ["LAS", "Las Vegas, NV"], ["RNO", "Reno, NV"], ["PHX", "Phoenix, AZ"], ["TUS", "Tucson, AZ"],
+  ["SLC", "Salt Lake City, UT"], ["DEN", "Denver, CO"], ["ABQ", "Albuquerque, NM"], ["MSP", "Minneapolis, MN"],
+  ["ORD", "Chicago, IL"], ["MDW", "Chicago (Midway), IL"], ["DFW", "Dallas/Fort Worth, TX"],
+  ["DAL", "Dallas (Love Field), TX"], ["IAH", "Houston, TX"], ["AUS", "Austin, TX"], ["SAT", "San Antonio, TX"],
+  ["MSY", "New Orleans, LA"], ["STL", "St. Louis, MO"], ["MCI", "Kansas City, MO"], ["MKE", "Milwaukee, WI"],
+  ["DTW", "Detroit, MI"], ["CLE", "Cleveland, OH"], ["CMH", "Columbus, OH"], ["CVG", "Cincinnati, OH"],
+  ["PIT", "Pittsburgh, PA"], ["ATL", "Atlanta, GA"], ["MIA", "Miami, FL"], ["FLL", "Fort Lauderdale, FL"],
+  ["MCO", "Orlando, FL"], ["TPA", "Tampa, FL"], ["JAX", "Jacksonville, FL"], ["RSW", "Fort Myers, FL"],
+  ["CLT", "Charlotte, NC"], ["RDU", "Raleigh-Durham, NC"], ["BNA", "Nashville, TN"], ["MEM", "Memphis, TN"],
+  ["IND", "Indianapolis, IN"], ["BWI", "Baltimore, MD"], ["DCA", "Washington, DC (Reagan)"],
+  ["IAD", "Washington, DC (Dulles)"], ["PHL", "Philadelphia, PA"], ["JFK", "New York (JFK), NY"],
+  ["LGA", "New York (LaGuardia), NY"], ["EWR", "Newark, NJ"], ["BOS", "Boston, MA"], ["PVD", "Providence, RI"],
+  ["BDL", "Hartford, CT"], ["ANC", "Anchorage, AK"], ["HNL", "Honolulu, Oahu, HI"], ["OGG", "Kahului, Maui, HI"],
+  ["KOA", "Kailua-Kona, Big Island, HI"], ["ITO", "Hilo, Big Island, HI"], ["LIH", "Lihue, Kauai, HI"],
+  ["MKK", "Molokai, HI"], ["LNY", "Lanai, HI"], ["JHM", "Kapalua, Maui, HI"], ["YVR", "Vancouver, Canada"],
+  ["YYC", "Calgary, Canada"], ["YEG", "Edmonton, Canada"], ["YYZ", "Toronto, Canada"], ["YUL", "Montreal, Canada"],
+  ["CUN", "Cancun, Mexico"], ["PVR", "Puerto Vallarta, Mexico"], ["SJD", "Los Cabos, Mexico"],
+  ["MEX", "Mexico City, Mexico"], ["GDL", "Guadalajara, Mexico"], ["LIR", "Liberia, Costa Rica"],
+  ["SJO", "San Jose, Costa Rica"], ["BZE", "Belize City, Belize"], ["NRT", "Tokyo (Narita), Japan"],
+  ["HND", "Tokyo (Haneda), Japan"], ["CTS", "Sapporo, Japan"], ["KIX", "Osaka, Japan"], ["ICN", "Seoul, South Korea"],
+  ["TPE", "Taipei, Taiwan"], ["HKG", "Hong Kong"], ["PPT", "Papeete, Tahiti"], ["LHR", "London (Heathrow), UK"],
+  ["CDG", "Paris (Charles de Gaulle), France"], ["DXB", "Dubai, UAE"], ["DOH", "Doha, Qatar"],
+  ["SYD", "Sydney, Australia"], ["AKL", "Auckland, New Zealand"], ["GUM", "Guam"],
+];
+
+function searchAirports(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return AIRPORTS.filter(([code, city]) => code.toLowerCase().includes(q) || city.toLowerCase().includes(q)).slice(
+    0,
+    30
+  );
+}
 
 const TIER_BENEFITS = {
   Silver: {
@@ -416,6 +462,82 @@ function Modal({ title, onClose, children }) {
         </div>
         {children}
       </div>
+    </div>
+  );
+}
+
+function AirportLookup() {
+  const [query, setQuery] = useState("");
+  const [fromCode, setFromCode] = useState("");
+  const [toCode, setToCode] = useState("");
+  const results = searchAirports(query);
+  const gcmUrl =
+    fromCode.trim().length === 3 && toCode.trim().length === 3
+      ? `https://www.greatcirclemap.com/?routes=${fromCode.trim().toUpperCase()}-${toCode.trim().toUpperCase()}`
+      : null;
+
+  return (
+    <div className="add-card compact">
+      <div className="field-row">
+        <label className="field">
+          <span>From</span>
+          <input
+            value={fromCode}
+            onChange={(e) => setFromCode(e.target.value.toUpperCase().slice(0, 3))}
+            placeholder="SEA"
+            maxLength={3}
+          />
+        </label>
+        <label className="field">
+          <span>To</span>
+          <input
+            value={toCode}
+            onChange={(e) => setToCode(e.target.value.toUpperCase().slice(0, 3))}
+            placeholder="HNL"
+            maxLength={3}
+          />
+        </label>
+      </div>
+      {gcmUrl ? (
+        <a className="btn btn-primary btn-sm" href={gcmUrl} target="_blank" rel="noopener noreferrer">
+          <Plane size={14} /> View distance on Great Circle Map
+        </a>
+      ) : (
+        <p className="hint" style={{ margin: 0 }}>
+          Enter both 3-letter codes to check the distance on Great Circle Map.
+        </p>
+      )}
+
+      <div className="search-row">
+        <Search size={14} className="search-icon" />
+        <input
+          type="text"
+          className="search-input"
+          placeholder="Search airport code or city..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {query && (
+          <button className="icon-btn tiny" onClick={() => setQuery("")} aria-label="Clear search">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {query.trim() && (
+        <div className="airport-results">
+          {results.length === 0 ? (
+            <p className="empty">No matches for "{query.trim()}".</p>
+          ) : (
+            results.map(([code, city]) => (
+              <div className="airport-result" key={code}>
+                <span className="airport-code">{code}</span>
+                <span className="airport-city">{city}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1502,6 +1624,15 @@ export default function AtmosTracker({
             <button
               className="menu-item"
               onClick={() => {
+                setActiveModal("airportLookup");
+                setMenuOpen(false);
+              }}
+            >
+              <MapPin size={16} /> Airport lookup
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
                 setActiveModal("goal");
                 setMenuOpen(false);
               }}
@@ -1653,6 +1784,12 @@ export default function AtmosTracker({
               2,000,000 lifetime miles grants lifetime Atmos Platinum.
             </p>
           </div>
+        </Modal>
+      )}
+
+      {activeModal === "airportLookup" && (
+        <Modal title="Airport lookup" onClose={() => setActiveModal(null)}>
+          <AirportLookup />
         </Modal>
       )}
 
@@ -2714,6 +2851,32 @@ const CSS = `
   min-width: 0;
 }
 .search-input::placeholder { color: var(--muted); }
+
+.airport-results {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.airport-result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.airport-result:first-child { border-top: none; }
+.airport-code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 700;
+  color: var(--coral-fg);
+  width: 34px;
+  flex-shrink: 0;
+}
+.airport-city { color: var(--ice); }
 
 .log-list {
   display: flex;
