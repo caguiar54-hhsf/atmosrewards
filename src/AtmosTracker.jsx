@@ -2857,9 +2857,15 @@ const CSS = `
 }
 .field input[type="date"] {
   padding-right: 6px;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .field input[type="date"]::-webkit-date-and-time-value {
   text-align: left;
+}
+.field input[type="date"]::-webkit-calendar-picker-indicator {
+  margin-left: 4px;
+  padding: 0;
 }
 .field input:disabled { opacity: 0.4; }
 .field-inline { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); font-weight: 500; }
