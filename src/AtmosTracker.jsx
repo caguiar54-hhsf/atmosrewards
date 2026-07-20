@@ -768,7 +768,7 @@ export default function AtmosTracker({
               <div className="chart-wrap">
                 <p className="chart-caption">Balance trend &middot; {viewYear === "all" ? "all time" : viewYear}</p>
                 <ResponsiveContainer width="100%" height={120}>
-                  <LineChart data={pointsChart} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
+                  <LineChart data={pointsChart} margin={{ top: 4, right: 36, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
@@ -834,7 +834,7 @@ export default function AtmosTracker({
               <div className="chart-wrap">
                 <p className="chart-caption">Status points &middot; {viewYear === "all" ? "all time" : viewYear}</p>
                 <ResponsiveContainer width="100%" height={130}>
-                  <LineChart data={statusChart} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
+                  <LineChart data={statusChart} margin={{ top: 4, right: 36, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
