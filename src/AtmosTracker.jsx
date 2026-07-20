@@ -22,6 +22,7 @@ const TIERS = [
   { name: "Platinum", threshold: 80000, color: "#f28fb0" },
   { name: "Titanium", threshold: 135000, color: "#b98fe3" },
 ];
+const MILLION_MILER = 1000000;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -489,6 +490,9 @@ export default function AtmosTracker({
       transactions.reduce((s, t) => s + (t.sign === "redeem" ? 0 : t.flightPoints || 0), 0),
     [transactions, lifetimeStart]
   );
+  const millionMilerPct = Math.min(100, Math.round((lifetimeMiles / MILLION_MILER) * 100));
+  const millionMilerRemaining = Math.max(0, MILLION_MILER - lifetimeMiles);
+  const millionMilerReached = lifetimeMiles >= MILLION_MILER;
   const yearNow = new Date().getFullYear();
 
   const availableYears = useMemo(() => {
@@ -680,9 +684,22 @@ export default function AtmosTracker({
             </div>
 
             <div className="lifetime-card">
-              <span className="card-label">Lifetime miles</span>
+              <div className="lifetime-head">
+                <span className="card-label">Lifetime miles</span>
+                <span className={`tier-badge ${millionMilerReached ? "milestone-reached" : "milestone-pending"}`}>
+                  {millionMilerReached ? "Million Miler" : "Million Miler goal"}
+                </span>
+              </div>
               <span className="lifetime-value">{lifetimeMiles.toLocaleString()}</span>
               <span className="card-unit">flight miles only &middot; never resets</span>
+              <div className="goal-bar lifetime-bar">
+                <div className="goal-bar-fill lifetime-bar-fill" style={{ width: `${millionMilerPct}%` }} />
+              </div>
+              <div className="goal-foot">
+                {millionMilerReached
+                  ? "Million Miler reached \u2014 1,000,000 lifetime miles"
+                  : `${millionMilerRemaining.toLocaleString()} miles to Million Miler (1,000,000)`}
+              </div>
             </div>
 
             {goal && (
@@ -1677,18 +1694,22 @@ const CSS = `
   background: var(--bg-surface);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 12px 16px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
+.lifetime-head { display: flex; align-items: center; justify-content: space-between; }
 .lifetime-value {
   font-family: 'IBM Plex Mono', monospace;
   font-weight: 600;
   font-size: 22px;
   color: var(--fuchsia-fg);
 }
+.lifetime-bar { margin-top: 6px; }
+.lifetime-bar-fill { background: linear-gradient(90deg, var(--fuchsia), var(--purple)); }
+.milestone-pending { color: var(--muted); border-color: var(--line); }
+.milestone-reached { color: var(--fuchsia-fg); border-color: var(--fuchsia-fg); }
 
 .totals-grid {
   display: grid;
