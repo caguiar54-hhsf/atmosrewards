@@ -39,6 +39,24 @@ const monthLabelLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("
 const fmtSigned = (n) => `${n >= 0 ? "+" : ""}${n.toLocaleString()}`;
 const fmtAxisK = (v) => (v === 0 ? "0" : Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}K` : `${v}`);
 
+function topRouteFromEntries(entries) {
+  const counts = new Map();
+  for (const t of entries) {
+    const match = (t.description || "").match(/[A-Z]{3}-[A-Z]{3}/);
+    if (!match) continue;
+    counts.set(match[0], (counts.get(match[0]) || 0) + 1);
+  }
+  let best = null;
+  let bestCount = 0;
+  for (const [route, count] of counts) {
+    if (count > bestCount) {
+      best = route;
+      bestCount = count;
+    }
+  }
+  return best ? { route: best, count: bestCount } : null;
+}
+
 function downloadTextFile(filename, content, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -388,6 +406,7 @@ export default function AtmosTracker({
   const [editingTxId, setEditingTxId] = useState(null);
   const [expandedTxId, setExpandedTxId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [dismissedReminders, setDismissedReminders] = useState(() => new Set());
   const [collapsedYears, setCollapsedYears] = useState(() => new Set());
   const [collapsedMonths, setCollapsedMonths] = useState(() => new Set());
   const [importResult, setImportResult] = useState(null);
@@ -579,6 +598,49 @@ export default function AtmosTracker({
     viewYear === yearNow && tierInfo.next && statusNeededForNextTier > 0 && avgStatusPerFlightThisYear > 0
       ? Math.ceil(statusNeededForNextTier / avgStatusPerFlightThisYear)
       : null;
+
+  // Reminders (shown regardless of which year is selected, and regardless of tab) — these
+  // always look at the actual current calendar year, not whatever year the person happens
+  // to be browsing.
+  const statusThisYearAlways = useMemo(
+    () =>
+      confirmedTransactions
+        .filter((t) => isValidISODate(t.date) && yearOf(t.date) === yearNow)
+        .reduce((s, t) => s + statusDelta(t), 0),
+    [confirmedTransactions, yearNow]
+  );
+  const tierInfoThisYear = getTierInfo(statusThisYearAlways);
+  const remainingToNextTierThisYear = tierInfoThisYear.next ? tierInfoThisYear.next.threshold - statusThisYearAlways : 0;
+  const closeToNextTier =
+    tierInfoThisYear.next && remainingToNextTierThisYear > 0 && remainingToNextTierThisYear <= Math.round(tierInfoThisYear.next.threshold * 0.1);
+
+  const isJanuary = new Date().getMonth() === 0;
+  const daysUntilJan31 = Math.ceil((new Date(yearNow, 0, 31) - new Date()) / 86400000);
+  const prevYearStatus = useMemo(
+    () =>
+      confirmedTransactions
+        .filter((t) => isValidISODate(t.date) && yearOf(t.date) === yearNow - 1)
+        .reduce((s, t) => s + statusDelta(t), 0),
+    [confirmedTransactions, yearNow]
+  );
+  const prevTierInfo = getTierInfo(prevYearStatus);
+  const benefitsExpiringSoon =
+    isJanuary &&
+    daysUntilJan31 >= 0 &&
+    prevTierInfo.current &&
+    (!tierInfoThisYear.current || TIERS.indexOf(tierInfoThisYear.current) < TIERS.indexOf(prevTierInfo.current));
+
+  const yearSummary = useMemo(() => {
+    if (viewYear === "all") return null;
+    const entries = flightEntries.filter((t) => isValidISODate(t.date) && yearOf(t.date) === viewYear);
+    return {
+      flights: entries.length,
+      points: totals.flight + totals.bonus,
+      status: totals.status,
+      tier: tierInfo.current,
+      topRoute: topRouteFromEntries(entries),
+    };
+  }, [viewYear, flightEntries, totals, tierInfo]);
   const invalidCount = useMemo(
     () => confirmedTransactions.filter((t) => !isValidISODate(t.date)).length,
     [confirmedTransactions]
@@ -767,6 +829,39 @@ export default function AtmosTracker({
         </button>
       </div>
 
+      {loaded && benefitsExpiringSoon && !dismissedReminders.has("expiring") && (
+        <div className="reminder-banner reminder-urgent">
+          <span>
+            Your {yearNow - 1} {prevTierInfo.current.name} benefits expire Jan 31 &mdash; {daysUntilJan31}{" "}
+            {daysUntilJan31 === 1 ? "day" : "days"} left. You're currently tracking{" "}
+            {tierInfoThisYear.current ? tierInfoThisYear.current.name : "no tier yet"} for {yearNow}.
+          </span>
+          <button
+            className="icon-btn tiny"
+            onClick={() => setDismissedReminders((prev) => new Set(prev).add("expiring"))}
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {loaded && closeToNextTier && !dismissedReminders.has("close-tier") && (
+        <div className="reminder-banner">
+          <span>
+            Just {remainingToNextTierThisYear.toLocaleString()} status points from{" "}
+            <strong>{tierInfoThisYear.next.name}</strong> this year!
+          </span>
+          <button
+            className="icon-btn tiny"
+            onClick={() => setDismissedReminders((prev) => new Set(prev).add("close-tier"))}
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       <main className="board-main">
         {!loaded ? (
           <div className="loading-row">
@@ -865,6 +960,14 @@ export default function AtmosTracker({
               {viewYear === "all"
                 ? "Lifetime totals across every year you've logged."
                 : `Totals for ${viewYear} only. Status points reset each Jan 1, so this is what counted toward tier that year.`}
+              {viewYear !== "all" && (
+                <>
+                  {" "}
+                  <button className="link-btn" onClick={() => setActiveModal("yearReview")}>
+                    View {viewYear} in review
+                  </button>
+                </>
+              )}
             </p>
 
             {pointsChart.length > 1 && (
@@ -1328,6 +1431,40 @@ export default function AtmosTracker({
               The CSV matches the Import CSV format, so it can be re-imported here or opened in
               a spreadsheet.
             </p>
+          </div>
+        </Modal>
+      )}
+
+      {activeModal === "yearReview" && yearSummary && (
+        <Modal title={`${viewYear} in review`} onClose={() => setActiveModal(null)}>
+          <div className="year-review">
+            <div className="review-stat">
+              <span className="review-stat-value">{yearSummary.flights.toLocaleString()}</span>
+              <span className="review-stat-label">{yearSummary.flights === 1 ? "flight" : "flights"} logged</span>
+            </div>
+            <div className="review-stat">
+              <span className="review-stat-value">{yearSummary.points.toLocaleString()}</span>
+              <span className="review-stat-label">points earned</span>
+            </div>
+            <div className="review-stat">
+              <span className="review-stat-value">{yearSummary.status.toLocaleString()}</span>
+              <span className="review-stat-label">status points</span>
+            </div>
+            <div className="review-stat">
+              <span className="review-stat-value" style={{ color: yearSummary.tier?.color || "var(--muted)" }}>
+                {yearSummary.tier ? yearSummary.tier.name : "None"}
+              </span>
+              <span className="review-stat-label">tier reached</span>
+            </div>
+            {yearSummary.topRoute && (
+              <div className="review-stat review-stat-wide">
+                <span className="review-stat-value">{yearSummary.topRoute.route}</span>
+                <span className="review-stat-label">
+                  most-flown route &middot; {yearSummary.topRoute.count}{" "}
+                  {yearSummary.topRoute.count === 1 ? "time" : "times"}
+                </span>
+              </div>
+            )}
           </div>
         </Modal>
       )}
@@ -1851,6 +1988,22 @@ const CSS = `
 }
 .tab-btn.active { background: var(--bg-surface); color: var(--ice); }
 
+.reminder-banner {
+  margin: 10px 16px 0;
+  background: rgba(210, 56, 110, 0.14);
+  border: 1px solid var(--fuchsia);
+  border-radius: 10px;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ice);
+}
+.reminder-banner strong { color: var(--fuchsia-fg); }
+.reminder-urgent { background: rgba(227, 38, 54, 0.14); border-color: var(--laser); }
+
 .fab {
   position: fixed;
   bottom: 24px;
@@ -1948,6 +2101,29 @@ const CSS = `
   font-weight: 700;
   font-family: 'Space Grotesk', sans-serif;
 }
+
+.year-review {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.review-stat {
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.review-stat-wide { grid-column: 1 / -1; }
+.review-stat-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--ice);
+}
+.review-stat-label { font-size: 11px; color: var(--muted); }
 
 .board-main { padding: 14px 16px 100px 16px; }
 .panel { display: flex; flex-direction: column; gap: 12px; }
