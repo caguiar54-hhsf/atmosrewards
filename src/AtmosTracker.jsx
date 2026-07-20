@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -323,6 +323,21 @@ async function saveOpeningBalance(ob) {
     /* best effort */
   }
 }
+async function loadLifetimeStart() {
+  try {
+    const res = await window.storage.get("atmos-lifetime-start", false);
+    return res ? JSON.parse(res.value) : null;
+  } catch {
+    return null;
+  }
+}
+async function saveLifetimeStart(ls) {
+  try {
+    await window.storage.set("atmos-lifetime-start", JSON.stringify(ls), false);
+  } catch {
+    /* best effort */
+  }
+}
 
 const noop = async () => {
   // eslint-disable-next-line no-console
@@ -340,6 +355,7 @@ export default function AtmosTracker({
   const [transactions, setTransactions] = useState([]);
   const [goal, setGoal] = useState(null);
   const [openingBalance, setOpeningBalance] = useState(null);
+  const [lifetimeStart, setLifetimeStart] = useState(null);
   const [adding, setAdding] = useState(false);
   const [editingTxId, setEditingTxId] = useState(null);
   const [collapsedYears, setCollapsedYears] = useState(() => new Set());
@@ -354,7 +370,13 @@ export default function AtmosTracker({
 
   useEffect(() => {
     (async () => {
-      const [tx, g, seeded, ob] = await Promise.all([loadTx(), loadGoal(), loadSeededFlag(), loadOpeningBalance()]);
+      const [tx, g, seeded, ob, ls] = await Promise.all([
+        loadTx(),
+        loadGoal(),
+        loadSeededFlag(),
+        loadOpeningBalance(),
+        loadLifetimeStart(),
+      ]);
       if (!seeded && tx.length === 0) {
         const seeded_tx = SEED_TRANSACTIONS.map((s) => ({ id: uid(), ...s }));
         setTransactions(seeded_tx);
@@ -365,6 +387,7 @@ export default function AtmosTracker({
       }
       setGoal(g);
       setOpeningBalance(ob);
+      setLifetimeStart(ls);
       setLoaded(true);
     })();
   }, []);
@@ -398,6 +421,10 @@ export default function AtmosTracker({
   const persistOpening = (next) => {
     setOpeningBalance(next);
     saveOpeningBalance(next);
+  };
+  const persistLifetimeStart = (next) => {
+    setLifetimeStart(next);
+    saveLifetimeStart(next);
   };
 
   const toggleYear = (year) => {
@@ -453,6 +480,14 @@ export default function AtmosTracker({
   const balance = useMemo(
     () => (openingBalance?.amount || 0) + transactions.reduce((s, t) => s + pointsDelta(t), 0),
     [transactions, openingBalance]
+  );
+  // Lifetime miles: flight miles only (never bonus or status points), and never reduced by
+  // redemptions — mirrors how Atmos Rewards' own lifetime-mile counter works.
+  const lifetimeMiles = useMemo(
+    () =>
+      (lifetimeStart?.amount || 0) +
+      transactions.reduce((s, t) => s + (t.sign === "redeem" ? 0 : t.flightPoints || 0), 0),
+    [transactions, lifetimeStart]
   );
   const yearNow = new Date().getFullYear();
 
@@ -642,6 +677,12 @@ export default function AtmosTracker({
               <span className="card-label">Atmos points</span>
               <FlapNumber value={balance} />
               <span className="card-unit">redeemable &middot; never expire</span>
+            </div>
+
+            <div className="lifetime-card">
+              <span className="card-label">Lifetime miles</span>
+              <span className="lifetime-value">{lifetimeMiles.toLocaleString()}</span>
+              <span className="card-unit">flight miles only &middot; never resets</span>
             </div>
 
             {goal && (
@@ -959,6 +1000,15 @@ export default function AtmosTracker({
             <button
               className="menu-item"
               onClick={() => {
+                setActiveModal("lifetime");
+                setMenuOpen(false);
+              }}
+            >
+              <Plane size={16} /> Lifetime miles
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
                 setActiveModal("goal");
                 setMenuOpen(false);
               }}
@@ -1044,6 +1094,19 @@ export default function AtmosTracker({
             openingBalance={openingBalance}
             onSave={(ob) => {
               persistOpening(ob);
+              setActiveModal(null);
+            }}
+            onCancel={() => setActiveModal(null)}
+          />
+        </Modal>
+      )}
+
+      {activeModal === "lifetime" && (
+        <Modal title="Lifetime miles" onClose={() => setActiveModal(null)}>
+          <LifetimeMilesEditor
+            lifetimeStart={lifetimeStart}
+            onSave={(ls) => {
+              persistLifetimeStart(ls);
               setActiveModal(null);
             }}
             onCancel={() => setActiveModal(null)}
@@ -1229,6 +1292,47 @@ function OpeningBalanceEditor({ openingBalance, onSave, onCancel }) {
       <label className="field">
         <span>Note (optional)</span>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Balance before 2025 activity" />
+      </label>
+      <div className="cta-row">
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => {
+            const n = Number(amount);
+            onSave(n ? { amount: n, asOf, note } : null);
+          }}
+        >
+          Save
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LifetimeMilesEditor({ lifetimeStart, onSave, onCancel }) {
+  const [amount, setAmount] = useState(lifetimeStart?.amount || "");
+  const [asOf, setAsOf] = useState(lifetimeStart?.asOf || "");
+  const [note, setNote] = useState(lifetimeStart?.note || "");
+  return (
+    <div className="add-card compact">
+      <p className="hint" style={{ margin: 0 }}>
+        Your existing lifetime miles before this tracker &mdash; flight miles only. Going
+        forward, flight points from logged activity are added automatically; bonus and status
+        points never count toward this number, and redemptions never reduce it.
+      </p>
+      <label className="field">
+        <span>Starting lifetime miles</span>
+        <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="250000" />
+      </label>
+      <label className="field">
+        <span>As of (optional)</span>
+        <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+      </label>
+      <label className="field">
+        <span>Note (optional)</span>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Balance before this tracker" />
       </label>
       <div className="cta-row">
         <button
@@ -1568,6 +1672,23 @@ const CSS = `
   gap: 4px;
 }
 .card-unit { font-size: 11px; color: var(--muted); }
+
+.lifetime-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.lifetime-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: 22px;
+  color: var(--fuchsia-fg);
+}
 
 .totals-grid {
   display: grid;
