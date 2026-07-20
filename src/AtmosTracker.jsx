@@ -630,17 +630,6 @@ export default function AtmosTracker({
     prevTierInfo.current &&
     (!tierInfoThisYear.current || TIERS.indexOf(tierInfoThisYear.current) < TIERS.indexOf(prevTierInfo.current));
 
-  const yearSummary = useMemo(() => {
-    if (viewYear === "all") return null;
-    const entries = flightEntries.filter((t) => isValidISODate(t.date) && yearOf(t.date) === viewYear);
-    return {
-      flights: entries.length,
-      points: totals.flight + totals.bonus,
-      status: totals.status,
-      tier: tierInfo.current,
-      topRoute: topRouteFromEntries(entries),
-    };
-  }, [viewYear, flightEntries, totals, tierInfo]);
   const invalidCount = useMemo(
     () => confirmedTransactions.filter((t) => !isValidISODate(t.date)).length,
     [confirmedTransactions]
@@ -676,6 +665,18 @@ export default function AtmosTracker({
       status: earned.reduce((s, t) => s + (t.statusPoints || 0), 0),
     };
   }, [confirmedTransactions, viewYear]);
+
+  const yearSummary = useMemo(() => {
+    if (viewYear === "all") return null;
+    const entries = flightEntries.filter((t) => isValidISODate(t.date) && yearOf(t.date) === viewYear);
+    return {
+      flights: entries.length,
+      points: totals.flight + totals.bonus,
+      status: totals.status,
+      tier: tierInfo.current,
+      topRoute: topRouteFromEntries(entries),
+    };
+  }, [viewYear, flightEntries, totals, tierInfo]);
 
   // Activity grouped by year, then by month, most recent first — each level carries a
   // points/status-points subtotal for its own entries.
