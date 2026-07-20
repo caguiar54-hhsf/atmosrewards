@@ -507,17 +507,22 @@ export default function AtmosTracker({
     reader.readAsText(file);
   };
 
+  // "Planned" entries are upcoming trips logged ahead of time — they never count toward
+  // balance, lifetime miles, totals, status, or charts until confirmed as flown.
+  const confirmedTransactions = useMemo(() => transactions.filter((t) => !t.planned), [transactions]);
+  const plannedTransactions = useMemo(() => transactions.filter((t) => t.planned), [transactions]);
+
   const balance = useMemo(
-    () => (openingBalance?.amount || 0) + transactions.reduce((s, t) => s + pointsDelta(t), 0),
-    [transactions, openingBalance]
+    () => (openingBalance?.amount || 0) + confirmedTransactions.reduce((s, t) => s + pointsDelta(t), 0),
+    [confirmedTransactions, openingBalance]
   );
   // Lifetime miles: flight miles only (never bonus or status points), and never reduced by
   // redemptions — mirrors how Atmos Rewards' own lifetime-mile counter works.
   const lifetimeMiles = useMemo(
     () =>
       (lifetimeStart?.amount || 0) +
-      transactions.reduce((s, t) => s + (t.sign === "redeem" ? 0 : t.flightPoints || 0), 0),
-    [transactions, lifetimeStart]
+      confirmedTransactions.reduce((s, t) => s + (t.sign === "redeem" ? 0 : t.flightPoints || 0), 0),
+    [confirmedTransactions, lifetimeStart]
   );
   const millionMilerPct = Math.min(100, Math.round((lifetimeMiles / MILLION_MILER) * 100));
   const millionMilerRemaining = Math.max(0, MILLION_MILER - lifetimeMiles);
@@ -526,27 +531,60 @@ export default function AtmosTracker({
 
   const availableYears = useMemo(() => {
     const years = new Set([yearNow]);
-    transactions.forEach((t) => {
+    confirmedTransactions.forEach((t) => {
       if (isValidISODate(t.date)) years.add(yearOf(t.date));
     });
     return Array.from(years).sort((a, b) => b - a);
-  }, [transactions, yearNow]);
+  }, [confirmedTransactions, yearNow]);
 
   const [viewYear, setViewYear] = useState(yearNow);
 
   const statusForViewYear = useMemo(
     () =>
       viewYear === "all"
-        ? transactions.reduce((s, t) => s + statusDelta(t), 0)
-        : transactions
+        ? confirmedTransactions.reduce((s, t) => s + statusDelta(t), 0)
+        : confirmedTransactions
             .filter((t) => isValidISODate(t.date) && yearOf(t.date) === viewYear)
             .reduce((s, t) => s + statusDelta(t), 0),
-    [transactions, viewYear]
+    [confirmedTransactions, viewYear]
   );
   const tierInfo = getTierInfo(statusForViewYear);
-  const invalidCount = useMemo(() => transactions.filter((t) => !isValidISODate(t.date)).length, [transactions]);
 
-  const sorted = [...transactions].sort((a, b) => (a.date < b.date ? -1 : 1));
+  // Projections: based on your average points/status per flight, how many more flights
+  // like that until you hit your goal or the next tier.
+  const flightEntries = useMemo(
+    () => confirmedTransactions.filter((t) => t.sign !== "redeem" && (t.flightPoints || 0) > 0),
+    [confirmedTransactions]
+  );
+  const avgPointsPerFlight = flightEntries.length
+    ? Math.round(
+        flightEntries.reduce((s, t) => s + (t.flightPoints || 0) + (t.bonusPoints || 0) + (t.nonStatusPoints || 0), 0) /
+          flightEntries.length
+      )
+    : 0;
+  const yearFlightEntries = useMemo(
+    () => flightEntries.filter((t) => isValidISODate(t.date) && yearOf(t.date) === yearNow),
+    [flightEntries, yearNow]
+  );
+  const avgStatusPerFlightThisYear = yearFlightEntries.length
+    ? Math.round(yearFlightEntries.reduce((s, t) => s + (t.statusPoints || 0), 0) / yearFlightEntries.length)
+    : 0;
+
+  const pointsNeededForGoal = goal ? Math.max(0, goal.amount - balance) : 0;
+  const flightsToGoal =
+    goal && pointsNeededForGoal > 0 && avgPointsPerFlight > 0 ? Math.ceil(pointsNeededForGoal / avgPointsPerFlight) : null;
+
+  const statusNeededForNextTier = tierInfo.next ? Math.max(0, tierInfo.next.threshold - statusForViewYear) : 0;
+  const flightsToNextTier =
+    viewYear === yearNow && tierInfo.next && statusNeededForNextTier > 0 && avgStatusPerFlightThisYear > 0
+      ? Math.ceil(statusNeededForNextTier / avgStatusPerFlightThisYear)
+      : null;
+  const invalidCount = useMemo(
+    () => confirmedTransactions.filter((t) => !isValidISODate(t.date)).length,
+    [confirmedTransactions]
+  );
+
+  const sorted = [...confirmedTransactions].sort((a, b) => (a.date < b.date ? -1 : 1));
   const pointsChart = useMemo(() => {
     const valid = sorted.filter((t) => isValidISODate(t.date));
     const monthly = toMonthlySeries(valid, pointsDelta, openingBalance?.amount || 0, viewYear === "all");
@@ -567,7 +605,7 @@ export default function AtmosTracker({
   }, [sorted, viewYear]);
 
   const totals = useMemo(() => {
-    const earned = transactions.filter(
+    const earned = confirmedTransactions.filter(
       (t) => t.sign !== "redeem" && (viewYear === "all" || (isValidISODate(t.date) && yearOf(t.date) === viewYear))
     );
     return {
@@ -575,7 +613,7 @@ export default function AtmosTracker({
       bonus: earned.reduce((s, t) => s + (t.bonusPoints || 0) + (t.nonStatusPoints || 0), 0),
       status: earned.reduce((s, t) => s + (t.statusPoints || 0), 0),
     };
-  }, [transactions, viewYear]);
+  }, [confirmedTransactions, viewYear]);
 
   // Activity grouped by year, then by month, most recent first — each level carries a
   // points/status-points subtotal for its own entries.
@@ -609,9 +647,64 @@ export default function AtmosTracker({
     });
     const invalidItems = q
       ? []
-      : transactions.filter((t) => !isValidISODate(t.date));
+      : confirmedTransactions.filter((t) => !isValidISODate(t.date));
     return { years: yearGroups, invalidItems };
-  }, [sorted, transactions, searchQuery]);
+  }, [sorted, confirmedTransactions, searchQuery]);
+
+  const renderPlannedRow = (t) => {
+    if (editingTxId === t.id) {
+      return (
+        <ActivityEditor
+          key={t.id}
+          initial={t}
+          onSave={(tx) => {
+            persistTx(transactions.map((x) => (x.id === t.id ? { id: t.id, ...tx } : x)));
+            setEditingTxId(null);
+          }}
+          onCancel={() => setEditingTxId(null)}
+        />
+      );
+    }
+    const total = pointsDelta(t);
+    const sp = statusDelta(t);
+    return (
+      <div key={t.id} className="planned-card">
+        <div className="tx-date">{fmtDate(t.date)}</div>
+        <div className="planned-desc">{t.description}</div>
+        <div className="planned-est">
+          Est.{" "}
+          <strong className={total >= 0 ? "pos" : "neg"}>
+            {total >= 0 ? "+" : ""}
+            {total.toLocaleString()} pts
+          </strong>
+          {sp ? <span className="preview-sp"> &middot; +{sp.toLocaleString()} sp</span> : null}
+        </div>
+        <div className="expanded-actions">
+          <button
+            className="btn btn-ghost btn-sm expanded-btn"
+            onClick={() => {
+              setAdding(false);
+              setEditingTxId(t.id);
+            }}
+          >
+            <Pencil size={14} /> Edit
+          </button>
+          <button
+            className="btn btn-primary btn-sm expanded-btn"
+            onClick={() => persistTx(transactions.map((x) => (x.id === t.id ? { ...x, planned: false } : x)))}
+          >
+            <Check size={14} /> Confirm flown
+          </button>
+          <button
+            className="btn btn-ghost btn-sm expanded-btn danger-text"
+            onClick={() => persistTx(transactions.filter((x) => x.id !== t.id))}
+          >
+            <Trash2 size={14} /> Delete
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderActivityRow = (t) => {
     if (editingTxId === t.id) {
@@ -723,6 +816,12 @@ export default function AtmosTracker({
                   {balance.toLocaleString()} / {goal.amount.toLocaleString()} pts (
                   {Math.min(100, Math.round((balance / goal.amount) * 100))}%)
                 </div>
+                {flightsToGoal && (
+                  <p className="hint" style={{ margin: 0 }}>
+                    At your average of {avgPointsPerFlight.toLocaleString()} pts/flight, that's about {flightsToGoal}{" "}
+                    more flight{flightsToGoal === 1 ? "" : "s"} to go.
+                  </p>
+                )}
               </div>
             )}
 
@@ -817,6 +916,12 @@ export default function AtmosTracker({
                       ? `${(tierInfo.next.threshold - statusForViewYear).toLocaleString()} pts to ${tierInfo.next.name}`
                       : "Top tier reached that year"}
                   </div>
+                  {flightsToNextTier && (
+                    <p className="hint" style={{ margin: 0 }}>
+                      At your {yearNow} average of {avgStatusPerFlightThisYear.toLocaleString()} sp/flight, that's
+                      about {flightsToNextTier} more flight{flightsToNextTier === 1 ? "" : "s"} to {tierInfo.next.name}.
+                    </p>
+                  )}
                   <p className="hint">
                     {viewYear === yearNow
                       ? `Status points reset Jan 1, ${yearNow + 1}. Status earned this year carries benefits through Jan 31, ${yearNow + 1}.`
@@ -867,6 +972,18 @@ export default function AtmosTracker({
             <div className="panel-head">
               <h2>Activity</h2>
             </div>
+
+            {plannedTransactions.length > 0 && (
+              <div className="upcoming-section">
+                <div className="upcoming-heading">
+                  Upcoming trips <span className="group-subtotal">not yet counted toward your totals</span>
+                </div>
+                {plannedTransactions
+                  .slice()
+                  .sort((a, b) => (a.date < b.date ? -1 : 1))
+                  .map((t) => renderPlannedRow(t))}
+              </div>
+            )}
 
             <div className="search-row">
               <Search size={14} className="search-icon" />
@@ -1527,6 +1644,7 @@ function ActivityEditor({ onSave, onCancel, initial }) {
   const [bonusPoints, setBonusPoints] = useState((initial?.bonusPoints || 0) + (initial?.nonStatusPoints || 0) || "");
   const [statusPoints, setStatusPoints] = useState(initial?.statusPoints || "");
   const [redeemPoints, setRedeemPoints] = useState(initial?.redeemPoints || "");
+  const [planned, setPlanned] = useState(initial?.planned || false);
 
   const fp = Number(flightPoints) || 0;
   const bp = Number(bonusPoints) || 0;
@@ -1546,6 +1664,7 @@ function ActivityEditor({ onSave, onCancel, initial }) {
       bonusPoints: sign === "earn" ? bp : 0,
       statusPoints: sign === "earn" ? sp : 0,
       redeemPoints: sign === "redeem" ? rp : 0,
+      planned: sign === "earn" ? planned : false,
     });
   };
 
@@ -1559,6 +1678,12 @@ function ActivityEditor({ onSave, onCancel, initial }) {
           <input type="radio" checked={sign === "redeem"} onChange={() => setSign("redeem")} /> Redeemed
         </label>
       </div>
+      {sign === "earn" && (
+        <label className="field-inline">
+          <input type="checkbox" checked={planned} onChange={(e) => setPlanned(e.target.checked)} />
+          This is an upcoming trip (not yet flown)
+        </label>
+      )}
       <label className="field">
         <span>Description</span>
         <input
@@ -1624,6 +1749,7 @@ function ActivityEditor({ onSave, onCancel, initial }) {
       <div className="preview-row">
         Total: <strong className={totalPreview >= 0 ? "pos" : "neg"}>{totalPreview >= 0 ? "+" : ""}{totalPreview.toLocaleString()} pts</strong>
         {sign === "earn" && sp > 0 && <span className="preview-sp"> &middot; +{sp.toLocaleString()} status pts</span>}
+        {planned && <span className="preview-sp"> &middot; not counted until confirmed</span>}
       </div>
 
       <div className="cta-row">
@@ -1999,6 +2125,31 @@ const CSS = `
   font-size: 12px;
   color: var(--ice);
 }
+
+.upcoming-section { display: flex; flex-direction: column; gap: 8px; }
+.upcoming-heading {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ice);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.upcoming-heading .group-subtotal { font-weight: 500; font-size: 11px; }
+.planned-card {
+  background: var(--bg-surface);
+  border: 1px dashed var(--fuchsia);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.planned-desc { color: var(--ice); font-size: 13.5px; font-weight: 600; }
+.planned-est { font-size: 12px; color: var(--muted); }
+.planned-est strong.pos { color: var(--coral-fg); }
+.planned-est strong.neg { color: var(--laser-fg); }
 
 .add-card input[type="file"] {
   font-size: 12px;
