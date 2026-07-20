@@ -2250,7 +2250,7 @@ function ActivityEditor({ onSave, onCancel, initial }) {
         <>
           <div className="field-row">
             <label className="field">
-              <span>Flight points</span>
+              <span>Flight pts</span>
               <input
                 type="number"
                 min="0"
@@ -2260,7 +2260,7 @@ function ActivityEditor({ onSave, onCancel, initial }) {
               />
             </label>
             <label className="field">
-              <span>Bonus points</span>
+              <span>Bonus pts</span>
               <input
                 type="number"
                 min="0"
@@ -2271,7 +2271,7 @@ function ActivityEditor({ onSave, onCancel, initial }) {
             </label>
           </div>
           <label className="field">
-            <span>Status points</span>
+            <span>Status pts</span>
             <input
               type="number"
               min="0"
@@ -2350,7 +2350,7 @@ const CSS = `
   outline-offset: 2px;
 }
 
-.board-header { padding: 24px 20px 4px 20px; text-align: center; }
+.board-header { padding: calc(24px + env(safe-area-inset-top)) 20px 4px 20px; text-align: center; }
 .board-brand {
   display: flex;
   flex-direction: column;
@@ -2371,7 +2371,7 @@ const CSS = `
 .board-header { position: relative; }
 .hamburger-btn {
   position: absolute;
-  top: 18px;
+  top: calc(18px + env(safe-area-inset-top));
   left: 16px;
   background: none;
   border: none;
@@ -2422,7 +2422,7 @@ const CSS = `
 
 .fab {
   position: fixed;
-  bottom: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
   right: max(24px, calc((100vw - 560px) / 2 + 24px));
   width: 56px;
   height: 56px;
@@ -2563,7 +2563,7 @@ const CSS = `
 .tier-benefit-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .tier-benefit-list li { font-size: 12.5px; color: var(--ice); line-height: 1.4; }
 
-.board-main { padding: 14px 16px 100px 16px; }
+.board-main { padding: 14px 16px calc(100px + env(safe-area-inset-bottom)) 16px; }
 .panel { display: flex; flex-direction: column; gap: 12px; }
 
 .card-label { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.3px; }
@@ -2816,7 +2816,7 @@ const CSS = `
 .add-card.compact { margin-top: -4px; }
 
 .field-row { display: flex; gap: 10px; }
-.field { display: flex; flex-direction: column; gap: 5px; flex: 1; font-size: 12px; color: var(--muted); font-weight: 600; }
+.field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; font-size: 12px; color: var(--muted); font-weight: 600; }
 .field input {
   background: var(--bg-surface-2);
   border: 1px solid var(--line);
@@ -2824,6 +2824,7 @@ const CSS = `
   padding: 9px 10px;
   font-size: 14px;
   color: var(--ice);
+  width: 100%;
 }
 .field input:disabled { opacity: 0.4; }
 .field-inline { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); font-weight: 500; }
