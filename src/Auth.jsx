@@ -202,12 +202,12 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "linear-gradient(135deg, #413691 0%, #d2386e 100%)",
+    background: "linear-gradient(135deg, #001f52 0%, #5d2685 55%, #d3117b 100%)",
     fontFamily: "system-ui, sans-serif",
     padding: 16,
   },
   card: {
-    background: "#2b255d",
+    background: "#001f52",
     border: "1px solid rgba(255,255,255,0.18)",
     borderRadius: 14,
     padding: 28,
@@ -221,7 +221,7 @@ const styles = {
   sub: { margin: "0 0 18px 0", fontSize: 13, color: "#d3c6ec" },
   form: { display: "flex", flexDirection: "column", gap: 10 },
   input: {
-    background: "#322a68",
+    background: "#1b365d",
     border: "1px solid rgba(255,255,255,0.18)",
     borderRadius: 8,
     padding: "10px 12px",
@@ -229,8 +229,8 @@ const styles = {
     fontSize: 14,
   },
   button: {
-    background: "#f9423a",
-    color: "#2b0e0c",
+    background: "#00b140",
+    color: "#042417",
     border: "none",
     borderRadius: 9,
     padding: "10px 12px",
@@ -240,6 +240,6 @@ const styles = {
   doneMsg: { fontSize: 13.5, lineHeight: 1.5 },
   errorMsg: { fontSize: 12.5, color: "#ff6f79", marginTop: 10 },
   switchRow: { fontSize: 12.5, color: "#d3c6ec", marginTop: 16, display: "flex", gap: 6, flexWrap: "wrap" },
-  linkBtn: { background: "none", border: "none", color: "#ef5c95", fontSize: 12.5, cursor: "pointer", padding: 0, fontWeight: 600 },
+  linkBtn: { background: "none", border: "none", color: "#f15fa8", fontSize: 12.5, cursor: "pointer", padding: 0, fontWeight: 600 },
   dot: { color: "#d3c6ec" },
 };

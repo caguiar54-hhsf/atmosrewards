@@ -17,10 +17,10 @@ import {
 // ---------- Atmos Rewards program constants (2026) ----------
 // Status points reset each calendar year; earned benefits run through Jan 31 of the following year.
 const TIERS = [
-  { name: "Silver", threshold: 20000, color: "#c7c2d9" },
+  { name: "Silver", threshold: 20000, color: "#d9e1e2" },
   { name: "Gold", threshold: 40000, color: "#f2c14e" },
-  { name: "Platinum", threshold: 80000, color: "#f28fb0" },
-  { name: "Titanium", threshold: 135000, color: "#b98fe3" },
+  { name: "Platinum", threshold: 80000, color: "#46a7de" },
+  { name: "Titanium", threshold: 135000, color: "#b07fd1" },
 ];
 const MILLION_MILER = 1000000;
 
@@ -1088,20 +1088,20 @@ export default function AtmosTracker({
             </div>
 
             <div className="totals-grid">
-              <div className="total-tile" style={{ "--tile-color": "#F9423A" }}>
+              <div className="total-tile" style={{ "--tile-color": "#00B140" }}>
                 <span className="total-label">Flight points</span>
                 <span className="total-value">{totals.flight.toLocaleString()}</span>
               </div>
-              <div className="total-tile" style={{ "--tile-color": "#D2386E" }}>
+              <div className="total-tile" style={{ "--tile-color": "#D3117B" }}>
                 <span className="total-label">Bonus points</span>
                 <span className="total-value">{totals.bonus.toLocaleString()}</span>
               </div>
-              <div className="total-tile" style={{ "--tile-color": "#E32636" }}>
+              <div className="total-tile" style={{ "--tile-color": "#E95D34" }}>
                 <span className="total-label">Status points</span>
                 <span className="total-value">{totals.status.toLocaleString()}</span>
               </div>
               {openingBalance?.amount ? (
-                <div className="total-tile" style={{ "--tile-color": "#413691" }}>
+                <div className="total-tile" style={{ "--tile-color": "#0062B2" }}>
                   <span className="total-label">Beginning balance</span>
                   <span className="total-value">{openingBalance.amount.toLocaleString()}</span>
                 </div>
@@ -1126,14 +1126,14 @@ export default function AtmosTracker({
                 <p className="chart-caption">Balance trend &middot; {viewYear === "all" ? "all time" : viewYear}</p>
                 <ResponsiveContainer width="100%" height={120}>
                   <LineChart data={pointsChart} margin={{ top: 4, right: 36, left: 4, bottom: 0 }}>
-                    <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
+                    <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
                     <Tooltip
-                      contentStyle={{ background: "#322a68", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
+                      contentStyle={{ background: "#1b365d", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
                     />
-                    <Line type="monotone" dataKey="value" stroke="#F9423A" strokeWidth={2} dot={{ r: 3, fill: "#F9423A" }} />
+                    <Line type="monotone" dataKey="value" stroke="#00B140" strokeWidth={2} dot={{ r: 3, fill: "#00B140" }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -1145,7 +1145,7 @@ export default function AtmosTracker({
                 {viewYear !== "all" && (
                   <span
                     className="tier-badge"
-                    style={{ color: tierInfo.current?.color || "#b7a8d9", borderColor: tierInfo.current?.color || "#4f4390" }}
+                    style={{ color: tierInfo.current?.color || "#aebdc9", borderColor: tierInfo.current?.color || "rgba(255,255,255,0.16)" }}
                   >
                     {tierInfo.current ? tierInfo.current.name : "No tier yet"}
                   </span>
@@ -1162,7 +1162,7 @@ export default function AtmosTracker({
                   <div className="goal-bar">
                     <div
                       className="goal-bar-fill status-fill"
-                      style={{ width: `${tierInfo.pct}%`, background: tierInfo.next?.color || tierInfo.current?.color || "#F9423A" }}
+                      style={{ width: `${tierInfo.pct}%`, background: tierInfo.next?.color || tierInfo.current?.color || "#00B140" }}
                     />
                   </div>
                   <div className="goal-foot">
@@ -1198,11 +1198,11 @@ export default function AtmosTracker({
                 <p className="chart-caption">Status points &middot; {viewYear === "all" ? "all time" : viewYear}</p>
                 <ResponsiveContainer width="100%" height={130}>
                   <LineChart data={statusChart} margin={{ top: 4, right: 36, left: 4, bottom: 0 }}>
-                    <CartesianGrid stroke="#4f4390" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#b7a8d9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
+                    <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
                     <Tooltip
-                      contentStyle={{ background: "#322a68", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
+                      contentStyle={{ background: "#1b365d", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: "#e8f1f5" }}
                     />
                     {viewYear !== "all" &&
@@ -1215,7 +1215,7 @@ export default function AtmosTracker({
                           label={{ value: t.name, position: "right", fill: t.color, fontSize: 10 }}
                         />
                       ))}
-                    <Line type="monotone" dataKey="value" stroke="#D2386E" strokeWidth={2} dot={{ r: 3, fill: "#D2386E" }} />
+                    <Line type="monotone" dataKey="value" stroke="#D3117B" strokeWidth={2} dot={{ r: 3, fill: "#D3117B" }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -2094,21 +2094,21 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');
 
 .app-root {
-  --bg-deep: #2b255d;
-  --bg-surface: #322a68;
-  --bg-surface-2: #3a3175;
-  --line: rgba(255, 255, 255, 0.18);
-  --ice: #f8f6fd;
-  --muted: #d3c6ec;
-  --coral: #f9423a;
-  --laser: #e32636;
-  --fuchsia: #d2386e;
-  --purple: #413691;
-  --coral-fg: #ff8478;
-  --laser-fg: #ff6f79;
-  --fuchsia-fg: #f291b9;
-  background: linear-gradient(rgba(16, 12, 38, 0.62), rgba(16, 12, 38, 0.62)),
-    linear-gradient(135deg, var(--purple) 0%, var(--fuchsia) 100%);
+  --bg-deep: #001f52;
+  --bg-surface: #1b365d;
+  --bg-surface-2: #2d486f;
+  --line: rgba(255, 255, 255, 0.16);
+  --ice: #f5f8fb;
+  --muted: #aebdc9;
+  --coral: #00b140;
+  --laser: #e95d34;
+  --fuchsia: #d3117b;
+  --purple: #5d2685;
+  --coral-fg: #3ddb84;
+  --laser-fg: #ff8f66;
+  --fuchsia-fg: #f15fa8;
+  background: linear-gradient(rgba(0, 12, 36, 0.6), rgba(0, 12, 36, 0.6)),
+    linear-gradient(135deg, var(--bg-deep) 0%, var(--purple) 55%, var(--fuchsia) 100%);
   color: var(--ice);
   font-family: 'Inter', system-ui, sans-serif;
   border-radius: 16px;
@@ -2348,9 +2348,9 @@ const CSS = `
   color: var(--fuchsia-fg);
 }
 .lifetime-bar { margin-top: 6px; }
-.lifetime-bar-fill { background: linear-gradient(90deg, var(--fuchsia), var(--purple)); }
+.lifetime-bar-fill { background: linear-gradient(90deg, #006a4e, var(--coral)); }
 .milestone-pending { color: var(--muted); border-color: var(--line); }
-.milestone-reached { color: var(--fuchsia-fg); border-color: var(--fuchsia-fg); }
+.milestone-reached { color: #3ddb84; border-color: #006a4e; }
 
 .totals-grid {
   display: grid;
@@ -2376,7 +2376,7 @@ const CSS = `
   font-family: 'IBM Plex Mono', monospace;
   font-weight: 600;
   font-size: 32px;
-  background: #1c1642;
+  background: #000d29;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 2px 6px;
@@ -2445,7 +2445,7 @@ const CSS = `
 .status-number { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; color: var(--ice); }
 .goal-bar { height: 8px; background: var(--bg-surface-2); border-radius: 5px; overflow: hidden; }
 .goal-bar-fill { height: 100%; }
-.points-fill { background: linear-gradient(90deg, var(--coral), var(--laser)); }
+.points-fill { background: linear-gradient(90deg, var(--coral), #0062b2); }
 .status-fill { transition: width 0.3s ease; }
 .goal-foot { font-size: 11.5px; color: var(--muted); }
 .link-btn { background: none; border: none; color: var(--fuchsia-fg); font-size: 12px; cursor: pointer; font-weight: 600; }
@@ -2539,8 +2539,8 @@ const CSS = `
   border: 1px solid transparent;
 }
 .btn-sm { padding: 7px 11px; font-size: 12.5px; }
-.btn-primary { background: var(--coral); color: #2b0e0c; }
-.btn-primary:hover { background: #ff6b5f; }
+.btn-primary { background: var(--coral); color: #042417; }
+.btn-primary:hover { background: #3ddb84; }
 .btn-ghost { background: transparent; border-color: var(--line); color: var(--ice); }
 .btn-ghost:hover { border-color: var(--coral-fg); color: var(--coral-fg); }
 
@@ -2696,7 +2696,7 @@ const CSS = `
 .danger-text { color: var(--laser-fg); }
 .danger-text:hover { border-color: var(--laser-fg); color: var(--laser-fg); }
 .btn-danger { background: var(--laser); color: #2b0e0c; }
-.btn-danger:hover { background: #ff6f79; }
+.btn-danger:hover { background: #ff8f66; }
 .confirm-row { align-items: center; }
 .confirm-text { font-size: 12.5px; color: var(--ice); flex: 1; }
 
