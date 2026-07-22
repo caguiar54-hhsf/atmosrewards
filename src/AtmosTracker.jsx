@@ -1363,18 +1363,24 @@ function buildYearMonthGroups(source) {
   // Same grouping, but for upcoming (planned) entries — a trip in progress can have some
   // legs already flown and others still upcoming, so this is intentionally separate from
   // tripGroupsData rather than merged into it.
-  // Trip cost per year, split into Work / Personal / Unspecified. Points cost is converted
+  // Trip cost by month, split into Work / Personal / Unspecified. Points cost is converted
   // to an estimated dollar value (same rate as the points-valuation estimate) so it can sit
-  // on the same axis as actual cash cost.
-  const costByYearData = useMemo(() => {
+  // on the same axis as actual cash cost. Always month-by-month, same as the Balance and
+  // Status charts — when "All time" is selected, the year gets appended to each month label
+  // to disambiguate across years.
+  const costChartData = useMemo(() => {
+    const filtered = tripGroupsData.filter(
+      (tg) => tg.startDate && (viewYear === "all" || yearOf(tg.startDate) === viewYear)
+    );
     const map = new Map();
-    tripGroupsData.forEach((tg) => {
-      if (!tg.startDate) return;
+    filtered.forEach((tg) => {
       const estValue = (tg.trip.costCash || 0) + ((tg.trip.costPoints || 0) * CENTS_PER_POINT) / 100;
       if (estValue <= 0) return;
-      const year = yearOf(tg.startDate);
-      if (!map.has(year)) map.set(year, { year, work: 0, personal: 0, unspecified: 0 });
-      const entry = map.get(year);
+      const mKey = monthKey(tg.startDate);
+      if (!map.has(mKey)) {
+        map.set(mKey, { key: mKey, name: chartMonthLabel(tg.startDate, viewYear === "all"), work: 0, personal: 0, unspecified: 0 });
+      }
+      const entry = map.get(mKey);
       if (tg.trip.paidWork && tg.trip.paidPersonal) {
         entry.work += estValue / 2;
         entry.personal += estValue / 2;
@@ -1386,34 +1392,6 @@ function buildYearMonthGroups(source) {
         entry.unspecified += estValue;
       }
     });
-    return Array.from(map.values()).sort((a, b) => a.year - b.year);
-  }, [tripGroupsData]);
-
-  // Same cost data, but broken out by individual trip within whichever single year is
-  // selected via the year toggle — mirrors how the status chart shows month-by-month detail
-  // for one year instead of a multi-year overview.
-  const costForSelectedYear = useMemo(() => {
-    if (viewYear === "all") return null;
-    const map = new Map();
-    tripGroupsData
-      .filter((tg) => tg.startDate && yearOf(tg.startDate) === viewYear)
-      .forEach((tg) => {
-        const estValue = (tg.trip.costCash || 0) + ((tg.trip.costPoints || 0) * CENTS_PER_POINT) / 100;
-        if (estValue <= 0) return;
-        const mKey = monthKey(tg.startDate);
-        if (!map.has(mKey)) map.set(mKey, { key: mKey, name: chartMonthLabel(tg.startDate, false), work: 0, personal: 0, unspecified: 0 });
-        const entry = map.get(mKey);
-        if (tg.trip.paidWork && tg.trip.paidPersonal) {
-          entry.work += estValue / 2;
-          entry.personal += estValue / 2;
-        } else if (tg.trip.paidWork) {
-          entry.work += estValue;
-        } else if (tg.trip.paidPersonal) {
-          entry.personal += estValue;
-        } else {
-          entry.unspecified += estValue;
-        }
-      });
     return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
   }, [tripGroupsData, viewYear]);
 
@@ -1966,24 +1944,15 @@ function buildYearMonthGroups(source) {
               </div>
             )}
 
-            {(viewYear === "all" ? costByYearData.length > 0 : costForSelectedYear.length > 0) && (
+            {costChartData.length > 0 && (
               <div className="chart-wrap">
                 <p className="chart-caption">
-                  {viewYear === "all" ? "Cost per year traveled" : `Cost by month \u00b7 ${viewYear}`} &middot; Work vs
-                  Personal
+                  Cost by month &middot; {viewYear === "all" ? "all time" : viewYear} &middot; Work vs Personal
                 </p>
                 <ResponsiveContainer width="100%" height={160}>
-                  <LineChart
-                    data={viewYear === "all" ? costByYearData : costForSelectedYear}
-                    margin={{ top: 4, right: 8, left: 4, bottom: 0 }}
-                  >
+                  <LineChart data={costChartData} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis
-                      dataKey={viewYear === "all" ? "year" : "name"}
-                      tick={{ fill: "#aebdc9", fontSize: 10 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
+                    <XAxis dataKey="name" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
                     <YAxis
                       tick={{ fill: "#aebdc9", fontSize: 10 }}
                       axisLine={false}
