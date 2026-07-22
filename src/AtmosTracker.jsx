@@ -1358,6 +1358,35 @@ function buildYearMonthGroups(source) {
       .sort((a, b) => (b.startDate || "").localeCompare(a.startDate || ""));
   }, [trips, sorted]);
 
+  // Same grouping, but for upcoming (planned) entries — a trip in progress can have some
+  // legs already flown and others still upcoming, so this is intentionally separate from
+  // tripGroupsData rather than merged into it.
+  const plannedTripGroups = useMemo(() => {
+    return trips
+      .map((trip) => {
+        const items = plannedTransactions.filter((t) => t.tripId === trip.id).sort((a, b) => (a.date < b.date ? -1 : 1));
+        if (items.length === 0) return null;
+        const pts = items.reduce((s, t) => s + pointsDelta(t), 0);
+        const sp = items.reduce((s, t) => s + statusDelta(t), 0);
+        const dates = items.filter((t) => isValidISODate(t.date)).map((t) => t.date);
+        return {
+          trip,
+          items,
+          pts,
+          sp,
+          startDate: dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null,
+          endDate: dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (a.startDate || "").localeCompare(b.startDate || ""));
+  }, [trips, plannedTransactions]);
+
+  const ungroupedPlanned = useMemo(
+    () => plannedTransactions.filter((t) => !t.tripId).sort((a, b) => (a.date < b.date ? -1 : 1)),
+    [plannedTransactions]
+  );
+
   const ungroupedYearGroups = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const base = sorted.filter((t) => !t.tripId);
@@ -1991,10 +2020,62 @@ function buildYearMonthGroups(source) {
                     <p className="hint" style={{ margin: "-4px 0 0" }}>
                       Not yet counted toward your totals.
                     </p>
-                    {plannedTransactions
-                      .slice()
-                      .sort((a, b) => (a.date < b.date ? -1 : 1))
-                      .map((t) => renderPlannedRow(t))}
+                    {plannedTripGroups.map((pg) => {
+                      const key = `ptrip-${pg.trip.id}`;
+                      const tripExpanded = !collapsedYears.has(key);
+                      return (
+                        <div className="year-group" key={pg.trip.id}>
+                          <div className="trip-header-row">
+                            <button
+                              className="group-heading year-heading trip-toggle"
+                              onClick={() => toggleYear(key)}
+                              aria-expanded={tripExpanded}
+                            >
+                              <span className="group-heading-left">
+                                <ChevronDown size={14} className={`chevron ${tripExpanded ? "" : "collapsed"}`} />
+                                {pg.trip.name}
+                              </span>
+                              <span className="group-subtotal">
+                                {fmtSigned(pg.pts)} pts est. &middot; {fmtSigned(pg.sp)} sp est.
+                              </span>
+                            </button>
+                            <button
+                              className="icon-btn tiny"
+                              onClick={() => setActiveModal(`trip-edit-${pg.trip.id}`)}
+                              aria-label="Edit trip"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          </div>
+                          {tripExpanded && (
+                            <>
+                              {(pg.trip.costPoints ||
+                                pg.trip.costCash ||
+                                pg.trip.paidWork ||
+                                pg.trip.paidPersonal ||
+                                pg.trip.confirmationCode) && (
+                                <div className="trip-meta-row" style={{ marginTop: -2 }}>
+                                  {(pg.trip.costPoints || pg.trip.costCash) && (
+                                    <span className="trip-tag">
+                                      Cost: {pg.trip.costPoints ? `${pg.trip.costPoints.toLocaleString()} pts` : ""}
+                                      {pg.trip.costPoints && pg.trip.costCash ? " + " : ""}
+                                      {pg.trip.costCash ? `$${pg.trip.costCash.toLocaleString()}` : ""}
+                                    </span>
+                                  )}
+                                  {pg.trip.paidWork && <span className="trip-tag">Work</span>}
+                                  {pg.trip.paidPersonal && <span className="trip-tag">Personal</span>}
+                                  {pg.trip.confirmationCode && (
+                                    <span className="trip-confirmation">Conf: {pg.trip.confirmationCode}</span>
+                                  )}
+                                </div>
+                              )}
+                              {pg.items.map((t) => renderPlannedRow(t))}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {ungroupedPlanned.length > 0 && ungroupedPlanned.map((t) => renderPlannedRow(t))}
                   </>
                 )}
               </div>
