@@ -2138,14 +2138,14 @@ function buildYearMonthGroups(source) {
                                 pg.trip.confirmationCode) && (
                                 <div className="trip-meta-row" style={{ marginTop: -2 }}>
                                   {(pg.trip.costPoints || pg.trip.costCash) && (
-                                    <span className="trip-tag">
+                                    <span className="trip-tag trip-tag-cost">
                                       Cost: {pg.trip.costPoints ? `${pg.trip.costPoints.toLocaleString()} pts` : ""}
                                       {pg.trip.costPoints && pg.trip.costCash ? " + " : ""}
                                       {pg.trip.costCash ? `$${pg.trip.costCash.toLocaleString()}` : ""}
                                     </span>
                                   )}
-                                  {pg.trip.paidWork && <span className="trip-tag">Work</span>}
-                                  {pg.trip.paidPersonal && <span className="trip-tag">Personal</span>}
+                                  {pg.trip.paidWork && <span className="trip-tag trip-tag-work">Work</span>}
+                                  {pg.trip.paidPersonal && <span className="trip-tag trip-tag-personal">Personal</span>}
                                   {pg.trip.confirmationCode && (
                                     <span className="trip-confirmation">Conf: {pg.trip.confirmationCode}</span>
                                   )}
@@ -2322,8 +2322,8 @@ function buildYearMonthGroups(source) {
                           )}
                           {(tg.trip.paidWork || tg.trip.paidPersonal || tg.trip.confirmationCode) && (
                             <div className="trip-meta-row">
-                              {tg.trip.paidWork && <span className="trip-tag">Work</span>}
-                              {tg.trip.paidPersonal && <span className="trip-tag">Personal</span>}
+                              {tg.trip.paidWork && <span className="trip-tag trip-tag-work">Work</span>}
+                              {tg.trip.paidPersonal && <span className="trip-tag trip-tag-personal">Personal</span>}
                               {tg.trip.confirmationCode && (
                                 <span className="trip-confirmation">Conf: {tg.trip.confirmationCode}</span>
                               )}
@@ -2659,8 +2659,8 @@ function buildYearMonthGroups(source) {
                     )}
                     {(tg.trip.paidWork || tg.trip.paidPersonal || tg.trip.confirmationCode) && (
                       <div className="trip-meta-row">
-                        {tg.trip.paidWork && <span className="trip-tag">Work</span>}
-                        {tg.trip.paidPersonal && <span className="trip-tag">Personal</span>}
+                        {tg.trip.paidWork && <span className="trip-tag trip-tag-work">Work</span>}
+                        {tg.trip.paidPersonal && <span className="trip-tag trip-tag-personal">Personal</span>}
                         {tg.trip.confirmationCode && (
                           <span className="trip-confirmation">Conf: {tg.trip.confirmationCode}</span>
                         )}
@@ -3631,6 +3631,9 @@ const CSS = `
   border-radius: 20px;
   padding: 2px 8px;
 }
+.trip-tag-work { color: #7fc0f2; background: rgba(0, 98, 178, 0.22); }
+.trip-tag-personal { color: #f291c4; background: rgba(211, 17, 123, 0.2); }
+.trip-tag-cost { color: #ff8a8a; background: rgba(229, 72, 77, 0.2); }
 .trip-confirmation {
   font-size: 10.5px;
   font-family: 'IBM Plex Mono', monospace;
