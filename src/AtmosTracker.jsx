@@ -1973,6 +1973,22 @@ function buildYearMonthGroups(source) {
                   Points cost converted at the same ~1.4&cent;/pt estimate used for your balance, added to any cash
                   cost. Only includes trips with a cost entered.
                 </p>
+                <div className="cost-year-totals">
+                  {costChartData.map((row) => {
+                    const total = row.work + row.personal + row.unspecified;
+                    return (
+                      <div className="cost-year-row" key={row.name}>
+                        <span className="cost-year-label">{row.name}</span>
+                        <span className="cost-year-breakdown">
+                          {row.work > 0 && <span>Work ${Math.round(row.work).toLocaleString()}</span>}
+                          {row.personal > 0 && <span>Personal ${Math.round(row.personal).toLocaleString()}</span>}
+                          {row.unspecified > 0 && <span>Unspecified ${Math.round(row.unspecified).toLocaleString()}</span>}
+                        </span>
+                        <span className="cost-year-total">${Math.round(total).toLocaleString()}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -3866,6 +3882,27 @@ const CSS = `
 }
 .source-bar-flight { background: var(--coral); }
 .source-bar-bonus { background: var(--fuchsia); }
+
+.cost-year-totals { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.cost-year-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 11.5px;
+}
+.cost-year-label { font-weight: 700; color: var(--ice); flex-shrink: 0; }
+.cost-year-breakdown { display: flex; gap: 8px; flex-wrap: wrap; color: var(--muted); flex: 1; }
+.cost-year-total {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  color: var(--ice);
+  flex-shrink: 0;
+  margin-left: auto;
+}
 
 .tier-benefits { display: flex; flex-direction: column; gap: 12px; }
 .tier-benefit-card {
