@@ -1394,20 +1394,27 @@ function buildYearMonthGroups(source) {
   // for one year instead of a multi-year overview.
   const costForSelectedYear = useMemo(() => {
     if (viewYear === "all") return null;
-    return tripGroupsData
+    const map = new Map();
+    tripGroupsData
       .filter((tg) => tg.startDate && yearOf(tg.startDate) === viewYear)
-      .map((tg) => {
+      .forEach((tg) => {
         const estValue = (tg.trip.costCash || 0) + ((tg.trip.costPoints || 0) * CENTS_PER_POINT) / 100;
-        return { name: tg.trip.name, startDate: tg.startDate, trip: tg.trip, estValue };
-      })
-      .filter((row) => row.estValue > 0)
-      .sort((a, b) => (a.startDate < b.startDate ? -1 : 1))
-      .map((row) => ({
-        name: row.name,
-        work: row.trip.paidWork && row.trip.paidPersonal ? row.estValue / 2 : row.trip.paidWork ? row.estValue : 0,
-        personal: row.trip.paidWork && row.trip.paidPersonal ? row.estValue / 2 : row.trip.paidPersonal ? row.estValue : 0,
-        unspecified: !row.trip.paidWork && !row.trip.paidPersonal ? row.estValue : 0,
-      }));
+        if (estValue <= 0) return;
+        const mKey = monthKey(tg.startDate);
+        if (!map.has(mKey)) map.set(mKey, { key: mKey, name: chartMonthLabel(tg.startDate, false), work: 0, personal: 0, unspecified: 0 });
+        const entry = map.get(mKey);
+        if (tg.trip.paidWork && tg.trip.paidPersonal) {
+          entry.work += estValue / 2;
+          entry.personal += estValue / 2;
+        } else if (tg.trip.paidWork) {
+          entry.work += estValue;
+        } else if (tg.trip.paidPersonal) {
+          entry.personal += estValue;
+        } else {
+          entry.unspecified += estValue;
+        }
+      });
+    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
   }, [tripGroupsData, viewYear]);
 
   const plannedTripGroups = useMemo(() => {
@@ -1962,7 +1969,7 @@ function buildYearMonthGroups(source) {
             {(viewYear === "all" ? costByYearData.length > 0 : costForSelectedYear.length > 0) && (
               <div className="chart-wrap">
                 <p className="chart-caption">
-                  {viewYear === "all" ? "Cost per year traveled" : `Cost by trip \u00b7 ${viewYear}`} &middot; Work vs
+                  {viewYear === "all" ? "Cost per year traveled" : `Cost by month \u00b7 ${viewYear}`} &middot; Work vs
                   Personal
                 </p>
                 <ResponsiveContainer width="100%" height={160}>
