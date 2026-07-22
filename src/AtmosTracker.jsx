@@ -12,8 +12,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  BarChart,
-  Bar,
   Legend,
 } from "recharts";
 
@@ -1944,7 +1942,7 @@ function buildYearMonthGroups(source) {
               <div className="chart-wrap">
                 <p className="chart-caption">Cost per year traveled &middot; Work vs Personal</p>
                 <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={costByYearData} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
+                  <LineChart data={costByYearData} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
                     <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="year" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
                     <YAxis
@@ -1960,10 +1958,25 @@ function buildYearMonthGroups(source) {
                       formatter={(v) => `$${Math.round(v).toLocaleString()}`}
                     />
                     <Legend wrapperStyle={{ fontSize: 11, color: "#aebdc9" }} />
-                    <Bar dataKey="work" stackId="cost" name="Work" fill="#0062b2" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="personal" stackId="cost" name="Personal" fill="#d3117b" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="unspecified" stackId="cost" name="Unspecified" fill="rgba(255,255,255,0.25)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
+                    <Line type="monotone" dataKey="work" name="Work" stroke="#0062b2" strokeWidth={2} dot={{ r: 3, fill: "#0062b2" }} />
+                    <Line
+                      type="monotone"
+                      dataKey="personal"
+                      name="Personal"
+                      stroke="#d3117b"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: "#d3117b" }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="unspecified"
+                      name="Unspecified"
+                      stroke="#aebdc9"
+                      strokeWidth={2}
+                      strokeDasharray="4 3"
+                      dot={{ r: 3, fill: "#aebdc9" }}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
                 <p className="hint" style={{ margin: 0 }}>
                   Points cost converted at the same ~1.4&cent;/pt estimate used for your balance, added to any cash
