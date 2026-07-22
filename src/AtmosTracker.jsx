@@ -2157,6 +2157,15 @@ function buildYearMonthGroups(source) {
                               )}
                             </p>
                           )}
+                          {(tg.trip.paidWork || tg.trip.paidPersonal || tg.trip.confirmationCode) && (
+                            <div className="trip-meta-row">
+                              {tg.trip.paidWork && <span className="trip-tag">Work</span>}
+                              {tg.trip.paidPersonal && <span className="trip-tag">Personal</span>}
+                              {tg.trip.confirmationCode && (
+                                <span className="trip-confirmation">Conf: {tg.trip.confirmationCode}</span>
+                              )}
+                            </div>
+                          )}
                           <div className="log-list">{tg.items.map((t) => renderActivityRow(t))}</div>
                         </>
                       )}
@@ -2484,6 +2493,15 @@ function buildYearMonthGroups(source) {
                         {tg.trip.costPoints && tg.trip.costCash ? " + " : ""}
                         {tg.trip.costCash ? `$${tg.trip.costCash.toLocaleString()}` : ""}
                       </span>
+                    )}
+                    {(tg.trip.paidWork || tg.trip.paidPersonal || tg.trip.confirmationCode) && (
+                      <div className="trip-meta-row">
+                        {tg.trip.paidWork && <span className="trip-tag">Work</span>}
+                        {tg.trip.paidPersonal && <span className="trip-tag">Personal</span>}
+                        {tg.trip.confirmationCode && (
+                          <span className="trip-confirmation">Conf: {tg.trip.confirmationCode}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                   <span className="trip-history-total">
@@ -2830,12 +2848,34 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
   const [name, setName] = useState(trip?.name || "");
   const [costPoints, setCostPoints] = useState(trip?.costPoints || "");
   const [costCash, setCostCash] = useState(trip?.costCash || "");
+  const [paidWork, setPaidWork] = useState(trip?.paidWork || false);
+  const [paidPersonal, setPaidPersonal] = useState(trip?.paidPersonal || false);
+  const [confirmationCode, setConfirmationCode] = useState(trip?.confirmationCode || "");
   return (
     <div className="add-card compact">
       <label className="field">
         <span>Trip name</span>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Hilo family visit" />
       </label>
+
+      <label className="field">
+        <span>Confirmation code (optional)</span>
+        <input
+          value={confirmationCode}
+          onChange={(e) => setConfirmationCode(e.target.value.toUpperCase())}
+          placeholder="ABC123"
+        />
+      </label>
+
+      <div className="field-row">
+        <label className="field-inline">
+          <input type="checkbox" checked={paidWork} onChange={(e) => setPaidWork(e.target.checked)} /> Work
+        </label>
+        <label className="field-inline">
+          <input type="checkbox" checked={paidPersonal} onChange={(e) => setPaidPersonal(e.target.checked)} /> Personal
+        </label>
+      </div>
+
       <p className="hint" style={{ margin: 0 }}>
         What this trip cost you, if you redeemed points or paid cash &mdash; purely informational, doesn't affect
         your balance.
@@ -2859,6 +2899,9 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
               name: name.trim(),
               costPoints: Number(costPoints) || 0,
               costCash: Number(costCash) || 0,
+              paidWork,
+              paidPersonal,
+              confirmationCode: confirmationCode.trim(),
             })
           }
         >
@@ -3416,6 +3459,20 @@ const CSS = `
 .row-selected { background: rgba(0, 177, 64, 0.08); }
 .not-in-trip-label { font-size: 11px; color: var(--muted); font-weight: 600; margin: 4px 2px 0; }
 .trip-header-row { display: flex; align-items: center; gap: 4px; }
+.trip-meta-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: -2px 0 4px; }
+.trip-tag {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255,255,255,0.08);
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+.trip-confirmation {
+  font-size: 10.5px;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--muted);
+}
 .trip-toggle { flex: 1; min-width: 0; }
 
 .trip-history-list { display: flex; flex-direction: column; gap: 8px; }
