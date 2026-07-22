@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star, MapPin } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star, MapPin, Briefcase } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -23,6 +23,9 @@ const TIERS = [
   { name: "Titanium", threshold: 135000, color: "#b07fd1" },
 ];
 const MILLION_MILER = 1000000;
+// Rough valuation estimate — third-party points-tracking sites put Atmos points in the
+// 1.2 to 1.5 cent range depending on redemption; 1.4 cents is a reasonable middle estimate.
+const CENTS_PER_POINT = 1.4;
 
 // Real Atmos Rewards tier benefits, current for 2026.
 // oneworld alliance tier each Atmos level carries.
@@ -142,6 +145,8 @@ function extractRoute(description) {
 }
 
 const fmtShortDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const fmtTimestamp = (iso) =>
+  iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Never";
 
 // Groups unassigned flight legs into suggested trips: a chain continues when the next leg
 // either departs from where the last one landed, or returns to where the chain started, as
@@ -211,6 +216,28 @@ function topRouteFromEntries(entries) {
     }
   }
   return best ? { route: best, count: bestCount } : null;
+}
+
+function buildICS(tx) {
+  const dateStr = tx.date.replace(/-/g, "");
+  const endDate = new Date(tx.date + "T00:00:00");
+  endDate.setDate(endDate.getDate() + 1);
+  const endStr = endDate.toISOString().slice(0, 10).replace(/-/g, "");
+  const now = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Atmos Tracker//EN",
+    "BEGIN:VEVENT",
+    `UID:${tx.id}@atmostracker`,
+    `DTSTAMP:${now}`,
+    `DTSTART;VALUE=DATE:${dateStr}`,
+    `DTEND;VALUE=DATE:${endStr}`,
+    `SUMMARY:${(tx.description || "Flight").replace(/[\r\n]+/g, " ")}`,
+    "DESCRIPTION:Upcoming trip logged in Atmos Tracker",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
 }
 
 function downloadTextFile(filename, content, mime) {
@@ -630,17 +657,30 @@ async function saveTx(tx) {
     /* best effort */
   }
 }
-async function loadGoal() {
+async function loadGoals() {
   try {
-    const res = await window.storage.get("atmos-goal", false);
-    return res ? JSON.parse(res.value) : null;
+    const res = await window.storage.get("atmos-goals", false);
+    if (res) return JSON.parse(res.value);
   } catch {
-    return null;
+    /* fall through to migration check */
   }
-}
-async function saveGoal(goal) {
+  // Migrate a previously-saved single goal into the new list-based format, once.
   try {
-    await window.storage.set("atmos-goal", JSON.stringify(goal), false);
+    const old = await window.storage.get("atmos-goal", false);
+    if (old) {
+      const singleGoal = JSON.parse(old.value);
+      const migrated = singleGoal ? [{ id: "migrated", ...singleGoal }] : [];
+      await window.storage.set("atmos-goals", JSON.stringify(migrated), false);
+      return migrated;
+    }
+  } catch {
+    /* no legacy goal either — fine */
+  }
+  return [];
+}
+async function saveGoals(goals) {
+  try {
+    await window.storage.set("atmos-goals", JSON.stringify(goals), false);
   } catch {
     /* best effort */
   }
@@ -720,6 +760,21 @@ async function saveDismissedSuggestions(list) {
     /* best effort */
   }
 }
+async function loadTimestamp(key) {
+  try {
+    const res = await window.storage.get(key, false);
+    return res ? res.value : null;
+  } catch {
+    return null;
+  }
+}
+async function saveTimestamp(key, iso) {
+  try {
+    await window.storage.set(key, iso, false);
+  } catch {
+    /* best effort */
+  }
+}
 
 const noop = async () => {
   // eslint-disable-next-line no-console
@@ -735,15 +790,18 @@ export default function AtmosTracker({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [transactions, setTransactions] = useState([]);
-  const [goal, setGoal] = useState(null);
+  const [goals, setGoals] = useState([]);
   const [openingBalance, setOpeningBalance] = useState(null);
   const [lifetimeStart, setLifetimeStart] = useState(null);
   const [trips, setTrips] = useState([]);
   const [dismissedSuggestions, setDismissedSuggestions] = useState([]);
+  const [lastImportAt, setLastImportAt] = useState(null);
+  const [lastExportAt, setLastExportAt] = useState(null);
   const [activityView, setActivityView] = useState("date"); // 'date' | 'trip'
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [groupingSuggestion, setGroupingSuggestion] = useState(null); // chain being named, or 'selection'
+  const [lastDeleted, setLastDeleted] = useState(null); // { tx, timeoutId }
   const [adding, setAdding] = useState(false);
   const [editingTxId, setEditingTxId] = useState(null);
   const [expandedTxId, setExpandedTxId] = useState(null);
@@ -766,14 +824,16 @@ export default function AtmosTracker({
 
   useEffect(() => {
     (async () => {
-      const [tx, g, seeded, ob, ls, tr, ds] = await Promise.all([
+      const [tx, g, seeded, ob, ls, tr, ds, li, le] = await Promise.all([
         loadTx(),
-        loadGoal(),
+        loadGoals(),
         loadSeededFlag(),
         loadOpeningBalance(),
         loadLifetimeStart(),
         loadTrips(),
         loadDismissedSuggestions(),
+        loadTimestamp("atmos-last-import"),
+        loadTimestamp("atmos-last-export"),
       ]);
       if (!seeded && tx.length === 0) {
         const seeded_tx = SEED_TRANSACTIONS.map((s) => ({ id: uid(), ...s }));
@@ -783,11 +843,13 @@ export default function AtmosTracker({
       } else {
         setTransactions(tx);
       }
-      setGoal(g);
+      setGoals(g);
       setOpeningBalance(ob);
       setLifetimeStart(ls);
       setTrips(tr);
       setDismissedSuggestions(ds);
+      setLastImportAt(li);
+      setLastExportAt(le);
       setLoaded(true);
     })();
   }, []);
@@ -813,14 +875,14 @@ export default function AtmosTracker({
   const doRefresh = async () => {
     const [tx, g, ob, ls, tr, ds] = await Promise.all([
       loadTx(),
-      loadGoal(),
+      loadGoals(),
       loadOpeningBalance(),
       loadLifetimeStart(),
       loadTrips(),
       loadDismissedSuggestions(),
     ]);
     setTransactions(tx);
-    setGoal(g);
+    setGoals(g);
     setOpeningBalance(ob);
     setLifetimeStart(ls);
     setTrips(tr);
@@ -887,10 +949,25 @@ export default function AtmosTracker({
     setTransactions(next);
     saveTx(next);
   };
-  const persistGoal = (next) => {
-    setGoal(next);
-    saveGoal(next);
+  const deleteTxWithUndo = (tx) => {
+    if (lastDeleted?.timeoutId) clearTimeout(lastDeleted.timeoutId);
+    persistTx(transactions.filter((x) => x.id !== tx.id));
+    const timeoutId = setTimeout(() => setLastDeleted(null), 6000);
+    setLastDeleted({ tx, timeoutId });
   };
+  const undoDelete = () => {
+    if (!lastDeleted) return;
+    if (lastDeleted.timeoutId) clearTimeout(lastDeleted.timeoutId);
+    persistTx([...transactions, lastDeleted.tx]);
+    setLastDeleted(null);
+  };
+  const persistGoals = (next) => {
+    setGoals(next);
+    saveGoals(next);
+  };
+  const addGoal = (g) => persistGoals([...goals, { id: uid(), ...g }]);
+  const updateGoal = (id, g) => persistGoals(goals.map((x) => (x.id === id ? { id, ...g } : x)));
+  const deleteGoal = (id) => persistGoals(goals.filter((x) => x.id !== id));
   const persistOpening = (next) => {
     setOpeningBalance(next);
     saveOpeningBalance(next);
@@ -917,6 +994,16 @@ export default function AtmosTracker({
     const trip = { id: uid(), name: name.trim() || "Untitled trip" };
     persistTrips([...trips, trip]);
     assignTxToTrip(txIds, trip.id);
+  };
+
+  const updateTrip = (id, patch) => {
+    persistTrips(trips.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  };
+
+  const deleteTrip = (id) => {
+    persistTrips(trips.filter((t) => t.id !== id));
+    // Activities that belonged to this trip go back to being ungrouped, not deleted.
+    persistTx(transactions.map((t) => (t.tripId === id ? { ...t, tripId: null } : t)));
   };
 
   // If the Log Activity form created a brand-new trip inline, create it here and swap the
@@ -1017,6 +1104,11 @@ export default function AtmosTracker({
           persistTx([...transactions, ...newTx]);
         }
         setImportResult({ added, skipped, noDate, badDate, flagged, error: null });
+        if (added > 0) {
+          const now = new Date().toISOString();
+          setLastImportAt(now);
+          saveTimestamp("atmos-last-import", now);
+        }
       } catch (e) {
         setImportResult({ added: 0, skipped: 0, error: "Couldn't read that file as CSV." });
       }
@@ -1096,9 +1188,10 @@ export default function AtmosTracker({
     ? Math.round(yearFlightEntries.reduce((s, t) => s + (t.statusPoints || 0), 0) / yearFlightEntries.length)
     : 0;
 
-  const pointsNeededForGoal = goal ? Math.max(0, goal.amount - balance) : 0;
-  const flightsToGoal =
-    goal && pointsNeededForGoal > 0 && avgPointsPerFlight > 0 ? Math.ceil(pointsNeededForGoal / avgPointsPerFlight) : null;
+  const flightsToReachGoal = (goalAmount) => {
+    const remaining = Math.max(0, goalAmount - balance);
+    return remaining > 0 && avgPointsPerFlight > 0 ? Math.ceil(remaining / avgPointsPerFlight) : null;
+  };
 
   const statusNeededForNextTier = tierInfo.next ? Math.max(0, tierInfo.next.threshold - statusForViewYear) : 0;
   const flightsToNextTier =
@@ -1176,14 +1269,28 @@ export default function AtmosTracker({
   const yearSummary = useMemo(() => {
     if (viewYear === "all") return null;
     const entries = flightEntries.filter((t) => isValidISODate(t.date) && yearOf(t.date) === viewYear);
+    const points = totals.flight + totals.bonus;
     return {
       flights: entries.length,
-      points: totals.flight + totals.bonus,
+      points,
       status: totals.status,
       tier: tierInfo.current,
       topRoute: topRouteFromEntries(entries),
+      flightPct: points > 0 ? Math.round((totals.flight / points) * 100) : 0,
+      bonusPct: points > 0 ? Math.round((totals.bonus / points) * 100) : 0,
     };
   }, [viewYear, flightEntries, totals, tierInfo]);
+
+  const tierHistoryByYear = useMemo(() => {
+    return availableYears
+      .map((year) => {
+        const statusSum = confirmedTransactions
+          .filter((t) => isValidISODate(t.date) && yearOf(t.date) === year)
+          .reduce((s, t) => s + statusDelta(t), 0);
+        return { year, tier: getTierInfo(statusSum).current, status: statusSum };
+      })
+      .sort((a, b) => b.year - a.year);
+  }, [availableYears, confirmedTransactions]);
 
   // Activity grouped by year, then by month, most recent first — each level carries a
   // points/status-points subtotal for its own entries.
@@ -1271,6 +1378,7 @@ function buildYearMonthGroups(source) {
     if (editingTxId === t.id) {
       return (
         <ActivityEditor
+          existingTransactions={transactions}
           key={t.id}
           initial={t}
           trips={trips}
@@ -1318,6 +1426,7 @@ function buildYearMonthGroups(source) {
     if (editingTxId === t.id) {
       return (
         <ActivityEditor
+          existingTransactions={transactions}
           key={t.id}
           initial={t}
           trips={trips}
@@ -1344,6 +1453,15 @@ function buildYearMonthGroups(source) {
           </strong>
           {sp ? <span className="preview-sp"> &middot; +{sp.toLocaleString()} sp</span> : null}
         </div>
+        {isValidISODate(t.date) && (
+          <button
+            className="flightaware-link"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+            onClick={() => downloadTextFile(`trip-${t.date}.ics`, buildICS(t), "text/calendar")}
+          >
+            <Plus size={13} /> Add to calendar
+          </button>
+        )}
         <div className="expanded-actions">
           <button
             className="btn btn-ghost btn-sm expanded-btn"
@@ -1422,6 +1540,7 @@ function buildYearMonthGroups(source) {
     if (editingTxId === t.id) {
       return (
         <ActivityEditor
+          existingTransactions={transactions}
           key={t.id}
           initial={t}
           trips={trips}
@@ -1446,7 +1565,7 @@ function buildYearMonthGroups(source) {
           setEditingTxId(t.id);
         }}
         onDelete={() => {
-          persistTx(transactions.filter((x) => x.id !== t.id));
+          deleteTxWithUndo(t);
           setExpandedTxId(null);
         }}
         selectMode={selectMode}
@@ -1528,6 +1647,15 @@ function buildYearMonthGroups(source) {
         </div>
       )}
 
+      {lastDeleted && (
+        <div className="undo-toast">
+          <span>Entry deleted</span>
+          <button className="undo-btn" onClick={undoDelete}>
+            Undo
+          </button>
+        </div>
+      )}
+
       <main className="board-main">
         {!loaded ? (
           <div className="loading-row">
@@ -1539,6 +1667,10 @@ function buildYearMonthGroups(source) {
               <span className="card-label">Atmos points</span>
               <FlapNumber value={balance} />
               <span className="card-unit">redeemable &middot; never expire</span>
+              <span className="card-value-estimate">
+                &asymp; ${((balance * CENTS_PER_POINT) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                {" "}est. value (~1.2&ndash;1.5&cent;/pt, varies by redemption)
+              </span>
             </div>
 
             <div className="lifetime-card">
@@ -1560,31 +1692,34 @@ function buildYearMonthGroups(source) {
               </div>
             </div>
 
-            {goal && (
-              <div className="goal-card">
-                <div className="goal-head">
-                  <span>
-                    Saving for: <strong>{goal.label || "a trip"}</strong>
-                  </span>
+            {goals.map((g) => {
+              const pct = Math.min(100, Math.round((balance / g.amount) * 100));
+              const remainingFlights = flightsToReachGoal(g.amount);
+              return (
+                <div className="goal-card" key={g.id}>
+                  <div className="goal-head">
+                    <span>
+                      Saving for: <strong>{g.label || "a trip"}</strong>
+                    </span>
+                    <button className="link-btn" onClick={() => setActiveModal(`goal-edit-${g.id}`)}>
+                      Edit
+                    </button>
+                  </div>
+                  <div className="goal-bar">
+                    <div className="goal-bar-fill points-fill" style={{ width: `${pct}%` }} />
+                  </div>
+                  <div className="goal-foot">
+                    {balance.toLocaleString()} / {g.amount.toLocaleString()} pts ({pct}%)
+                  </div>
+                  {remainingFlights && (
+                    <p className="hint" style={{ margin: 0 }}>
+                      At your average of {avgPointsPerFlight.toLocaleString()} pts/flight, that's about{" "}
+                      {remainingFlights} more flight{remainingFlights === 1 ? "" : "s"} to go.
+                    </p>
+                  )}
                 </div>
-                <div className="goal-bar">
-                  <div
-                    className="goal-bar-fill points-fill"
-                    style={{ width: `${Math.min(100, Math.round((balance / goal.amount) * 100))}%` }}
-                  />
-                </div>
-                <div className="goal-foot">
-                  {balance.toLocaleString()} / {goal.amount.toLocaleString()} pts (
-                  {Math.min(100, Math.round((balance / goal.amount) * 100))}%)
-                </div>
-                {flightsToGoal && (
-                  <p className="hint" style={{ margin: 0 }}>
-                    At your average of {avgPointsPerFlight.toLocaleString()} pts/flight, that's about {flightsToGoal}{" "}
-                    more flight{flightsToGoal === 1 ? "" : "s"} to go.
-                  </p>
-                )}
-              </div>
-            )}
+              );
+            })}
 
             <div className="panel-head">
               <h2>Totals</h2>
@@ -1927,6 +2062,7 @@ function buildYearMonthGroups(source) {
 
             {adding && (
               <ActivityEditor
+          existingTransactions={transactions}
                 trips={trips}
                 onSave={(tx) => {
                   const resolved = resolveTripField(tx);
@@ -1979,25 +2115,46 @@ function buildYearMonthGroups(source) {
                   const expanded = !!searchQuery.trim() || !collapsedYears.has(key);
                   return (
                     <div className="year-group" key={tg.trip.id}>
-                      <button
-                        className="group-heading year-heading"
-                        onClick={() => toggleYear(key)}
-                        aria-expanded={expanded}
-                      >
-                        <span className="group-heading-left">
-                          <ChevronDown size={14} className={`chevron ${expanded ? "" : "collapsed"}`} />
-                          {tg.trip.name}
-                        </span>
-                        <span className="group-subtotal">
-                          {fmtSigned(tg.pts)} pts &middot; {fmtSigned(tg.sp)} sp
-                        </span>
-                      </button>
+                      <div className="trip-header-row">
+                        <button
+                          className="group-heading year-heading trip-toggle"
+                          onClick={() => toggleYear(key)}
+                          aria-expanded={expanded}
+                        >
+                          <span className="group-heading-left">
+                            <ChevronDown size={14} className={`chevron ${expanded ? "" : "collapsed"}`} />
+                            {tg.trip.name}
+                          </span>
+                          <span className="group-subtotal">
+                            {fmtSigned(tg.pts)} pts &middot; {fmtSigned(tg.sp)} sp
+                          </span>
+                        </button>
+                        <button
+                          className="icon-btn tiny"
+                          onClick={() => setActiveModal(`trip-edit-${tg.trip.id}`)}
+                          aria-label="Edit trip"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      </div>
                       {expanded && (
                         <>
-                          {tg.startDate && (
+                          {(tg.startDate || tg.trip.costPoints || tg.trip.costCash) && (
                             <p className="hint" style={{ margin: "-4px 0 4px" }}>
-                              {fmtDate(tg.startDate)}
-                              {tg.endDate && tg.endDate !== tg.startDate ? ` \u2013 ${fmtDate(tg.endDate)}` : ""}
+                              {tg.startDate && (
+                                <>
+                                  {fmtDate(tg.startDate)}
+                                  {tg.endDate && tg.endDate !== tg.startDate ? ` \u2013 ${fmtDate(tg.endDate)}` : ""}
+                                </>
+                              )}
+                              {(tg.trip.costPoints || tg.trip.costCash) && (
+                                <>
+                                  {tg.startDate ? " \u00b7 " : ""}Cost:{" "}
+                                  {tg.trip.costPoints ? `${tg.trip.costPoints.toLocaleString()} pts` : ""}
+                                  {tg.trip.costPoints && tg.trip.costCash ? " + " : ""}
+                                  {tg.trip.costCash ? `$${tg.trip.costCash.toLocaleString()}` : ""}
+                                </>
+                              )}
                             </p>
                           )}
                           <div className="log-list">{tg.items.map((t) => renderActivityRow(t))}</div>
@@ -2106,11 +2263,29 @@ function buildYearMonthGroups(source) {
             <button
               className="menu-item"
               onClick={() => {
-                setActiveModal("goal");
+                setActiveModal("tripHistory");
                 setMenuOpen(false);
               }}
             >
-              <Award size={16} /> Redemption goal
+              <Briefcase size={16} /> Trip history
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("dataHealth");
+                setMenuOpen(false);
+              }}
+            >
+              <Check size={16} /> Data health
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("goalsList");
+                setMenuOpen(false);
+              }}
+            >
+              <Award size={16} /> Redemption goals
             </button>
             <button
               className="menu-item"
@@ -2256,6 +2431,25 @@ function buildYearMonthGroups(source) {
               Million Miler: reaching 1,000,000 lifetime miles grants lifetime Atmos Gold status;
               2,000,000 lifetime miles grants lifetime Atmos Platinum.
             </p>
+            {tierHistoryByYear.length > 0 && (
+              <div className="tier-history">
+                <p className="card-label" style={{ margin: "4px 0 0" }}>
+                  Your tier history
+                </p>
+                {tierHistoryByYear.map((h) => (
+                  <div className="tier-history-row" key={h.year}>
+                    <span>{h.year}</span>
+                    <span
+                      className="tier-badge"
+                      style={{ color: h.tier?.color || "var(--muted)", borderColor: h.tier?.color || "var(--line)" }}
+                    >
+                      {h.tier ? h.tier.name : "No tier"}
+                    </span>
+                    <span className="tier-history-status">{h.status.toLocaleString()} sp</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </Modal>
       )}
@@ -2266,12 +2460,163 @@ function buildYearMonthGroups(source) {
         </Modal>
       )}
 
-      {activeModal === "goal" && (
-        <Modal title="Redemption goal" onClose={() => setActiveModal(null)}>
+      {activeModal === "tripHistory" && (
+        <Modal title="Trip history" onClose={() => setActiveModal(null)}>
+          {tripGroupsData.length === 0 ? (
+            <p className="empty">
+              No trips yet &mdash; group activity into a trip from the Activity tab to see it here.
+            </p>
+          ) : (
+            <div className="trip-history-list">
+              {tripGroupsData.map((tg) => (
+                <div className="trip-history-row" key={tg.trip.id}>
+                  <div className="trip-history-main">
+                    <span className="trip-history-name">{tg.trip.name}</span>
+                    <span className="trip-history-dates">
+                      {tg.startDate ? fmtDate(tg.startDate) : "No date"}
+                      {tg.endDate && tg.endDate !== tg.startDate ? ` \u2013 ${fmtDate(tg.endDate)}` : ""}
+                      {" \u00b7 "}
+                      {tg.items.length} {tg.items.length === 1 ? "entry" : "entries"}
+                    </span>
+                    {(tg.trip.costPoints || tg.trip.costCash) && (
+                      <span className="trip-history-dates">
+                        Cost: {tg.trip.costPoints ? `${tg.trip.costPoints.toLocaleString()} pts` : ""}
+                        {tg.trip.costPoints && tg.trip.costCash ? " + " : ""}
+                        {tg.trip.costCash ? `$${tg.trip.costCash.toLocaleString()}` : ""}
+                      </span>
+                    )}
+                  </div>
+                  <span className="trip-history-total">
+                    {fmtSigned(tg.pts)} pts
+                    <br />
+                    {fmtSigned(tg.sp)} sp
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {activeModal === "dataHealth" && (
+        <Modal title="Data health" onClose={() => setActiveModal(null)}>
+          <div className="data-health-list">
+            <div className={`health-row ${reviewTransactions.length > 0 ? "health-warn" : ""}`}>
+              <span>Needs review</span>
+              <span className="health-value">{reviewTransactions.length}</span>
+              {reviewTransactions.length > 0 && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setActiveModal(null);
+                    setTab("activity");
+                  }}
+                >
+                  Review
+                </button>
+              )}
+            </div>
+            <div className={`health-row ${invalidCount > 0 ? "health-warn" : ""}`}>
+              <span>Unknown date entries</span>
+              <span className="health-value">{invalidCount}</span>
+              {invalidCount > 0 && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setActiveModal(null);
+                    setTab("activity");
+                  }}
+                >
+                  Review
+                </button>
+              )}
+            </div>
+            <div className={`health-row ${tripSuggestions.length > 0 ? "health-warn" : ""}`}>
+              <span>Trip suggestions pending</span>
+              <span className="health-value">{tripSuggestions.length}</span>
+            </div>
+            <div className="health-row">
+              <span>Last CSV import</span>
+              <span className="health-value">{fmtTimestamp(lastImportAt)}</span>
+            </div>
+            <div className="health-row">
+              <span>Last data export</span>
+              <span className="health-value">{fmtTimestamp(lastExportAt)}</span>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setActiveModal("export");
+                }}
+              >
+                Export now
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {typeof activeModal === "string" && activeModal.startsWith("trip-edit-") && (
+        <Modal title="Edit trip" onClose={() => setActiveModal(null)}>
+          <TripEditor
+            trip={trips.find((t) => t.id === activeModal.replace("trip-edit-", ""))}
+            onSave={(patch) => {
+              updateTrip(activeModal.replace("trip-edit-", ""), patch);
+              setActiveModal(null);
+            }}
+            onDelete={() => {
+              deleteTrip(activeModal.replace("trip-edit-", ""));
+              setActiveModal(null);
+            }}
+            onCancel={() => setActiveModal(null)}
+          />
+        </Modal>
+      )}
+
+      {activeModal === "goalsList" && (
+        <Modal title="Redemption goals" onClose={() => setActiveModal(null)}>
+          <div className="goals-manage-list">
+            {goals.length === 0 && <p className="empty">No goals yet.</p>}
+            {goals.map((g) => (
+              <div className="goal-manage-row" key={g.id}>
+                <span>
+                  {g.label || "Untitled"} &mdash; {g.amount.toLocaleString()} pts
+                </span>
+                <div className="cta-row">
+                  <button className="btn btn-ghost btn-sm" onClick={() => setActiveModal(`goal-edit-${g.id}`)}>
+                    Edit
+                  </button>
+                  <button className="btn btn-ghost btn-sm danger-text" onClick={() => deleteGoal(g.id)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button className="btn btn-primary btn-sm" onClick={() => setActiveModal("goal-new")}>
+              <Plus size={14} /> Add goal
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {activeModal === "goal-new" && (
+        <Modal title="New redemption goal" onClose={() => setActiveModal(null)}>
           <GoalEditor
-            goal={goal}
+            goal={null}
             onSave={(g) => {
-              persistGoal(g);
+              addGoal(g);
+              setActiveModal(null);
+            }}
+            onCancel={() => setActiveModal(null)}
+          />
+        </Modal>
+      )}
+
+      {typeof activeModal === "string" && activeModal.startsWith("goal-edit-") && (
+        <Modal title="Edit redemption goal" onClose={() => setActiveModal(null)}>
+          <GoalEditor
+            goal={goals.find((g) => g.id === activeModal.replace("goal-edit-", ""))}
+            onSave={(g) => {
+              updateGoal(activeModal.replace("goal-edit-", ""), g);
               setActiveModal(null);
             }}
             onCancel={() => setActiveModal(null)}
@@ -2288,19 +2633,27 @@ function buildYearMonthGroups(source) {
             </p>
             <button
               className="btn btn-primary btn-sm"
-              onClick={() =>
+              onClick={() => {
                 downloadTextFile(
                   `atmos-tracker-backup-${todayISO()}.json`,
-                  JSON.stringify({ transactions, goal, openingBalance, lifetimeStart }, null, 2),
+                  JSON.stringify({ transactions, goals, openingBalance, lifetimeStart, trips }, null, 2),
                   "application/json"
-                )
-              }
+                );
+                const now = new Date().toISOString();
+                setLastExportAt(now);
+                saveTimestamp("atmos-last-export", now);
+              }}
             >
               <Download size={14} /> Download full backup (JSON)
             </button>
             <button
               className="btn btn-ghost btn-sm"
-              onClick={() => downloadTextFile(`atmos-tracker-activity-${todayISO()}.csv`, transactionsToCSV(transactions), "text/csv")}
+              onClick={() => {
+                downloadTextFile(`atmos-tracker-activity-${todayISO()}.csv`, transactionsToCSV(transactions), "text/csv");
+                const now = new Date().toISOString();
+                setLastExportAt(now);
+                saveTimestamp("atmos-last-export", now);
+              }}
             >
               <Download size={14} /> Download activity only (CSV)
             </button>
@@ -2339,6 +2692,20 @@ function buildYearMonthGroups(source) {
                 <span className="review-stat-label">
                   most-flown route &middot; {yearSummary.topRoute.count}{" "}
                   {yearSummary.topRoute.count === 1 ? "time" : "times"}
+                </span>
+              </div>
+            )}
+            {yearSummary.points > 0 && (
+              <div className="review-stat review-stat-wide">
+                <span className="review-stat-label" style={{ marginBottom: 4 }}>
+                  Where your points came from
+                </span>
+                <div className="source-bar">
+                  <div className="source-bar-flight" style={{ width: `${yearSummary.flightPct}%` }} />
+                  <div className="source-bar-bonus" style={{ width: `${yearSummary.bonusPct}%` }} />
+                </div>
+                <span className="review-stat-label">
+                  {yearSummary.flightPct}% flying &middot; {yearSummary.bonusPct}% bonuses &amp; card spend
                 </span>
               </div>
             )}
@@ -2459,6 +2826,57 @@ function PasswordEditor({ onSave, onCancel }) {
   );
 }
 
+function TripEditor({ trip, onSave, onDelete, onCancel }) {
+  const [name, setName] = useState(trip?.name || "");
+  const [costPoints, setCostPoints] = useState(trip?.costPoints || "");
+  const [costCash, setCostCash] = useState(trip?.costCash || "");
+  return (
+    <div className="add-card compact">
+      <label className="field">
+        <span>Trip name</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Hilo family visit" />
+      </label>
+      <p className="hint" style={{ margin: 0 }}>
+        What this trip cost you, if you redeemed points or paid cash &mdash; purely informational, doesn't affect
+        your balance.
+      </p>
+      <div className="field-row">
+        <label className="field">
+          <span>Cost in points</span>
+          <input type="number" min="0" value={costPoints} onChange={(e) => setCostPoints(e.target.value)} placeholder="60000" />
+        </label>
+        <label className="field">
+          <span>Cost in cash ($)</span>
+          <input type="number" min="0" value={costCash} onChange={(e) => setCostCash(e.target.value)} placeholder="45" />
+        </label>
+      </div>
+      <div className="cta-row">
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() =>
+            name.trim() &&
+            onSave({
+              name: name.trim(),
+              costPoints: Number(costPoints) || 0,
+              costCash: Number(costCash) || 0,
+            })
+          }
+        >
+          Save
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+        {onDelete && (
+          <button className="btn btn-ghost btn-sm danger-text" onClick={onDelete}>
+            Delete trip
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TripGroupEditor({ trips, itemCount, onAssignExisting, onCreateNew, onCancel }) {
   const [newName, setNewName] = useState("");
   return (
@@ -2509,7 +2927,7 @@ function GoalEditor({ goal, onSave, onCancel }) {
           className="btn btn-primary btn-sm"
           onClick={() => {
             const n = Number(amount);
-            onSave(n ? { label, amount: n } : null);
+            if (n && label.trim()) onSave({ label: label.trim(), amount: n });
           }}
         >
           Save goal
@@ -2716,7 +3134,7 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete, selectMode
   );
 }
 
-function ActivityEditor({ onSave, onCancel, initial, trips = [] }) {
+function ActivityEditor({ onSave, onCancel, initial, trips = [], existingTransactions = [] }) {
   const [date, setDate] = useState(initial?.date || todayISO());
   const [description, setDescription] = useState(initial?.description || "");
   const [sign, setSign] = useState(initial?.sign || "earn");
@@ -2728,6 +3146,7 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [] }) {
   const [notes, setNotes] = useState(initial?.notes || "");
   const [tripChoice, setTripChoice] = useState(initial?.tripId || "none");
   const [newTripName, setNewTripName] = useState("");
+  const [dupWarning, setDupWarning] = useState(false);
 
   const fp = Number(flightPoints) || 0;
   const bp = Number(bonusPoints) || 0;
@@ -2735,23 +3154,34 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [] }) {
   const rp = Number(redeemPoints) || 0;
   const totalPreview = sign === "earn" ? fp + bp : -rp;
 
+  const buildTx = () => ({
+    date,
+    description,
+    sign,
+    flightPoints: sign === "earn" ? fp : 0,
+    bonusPoints: sign === "earn" ? bp : 0,
+    statusPoints: sign === "earn" ? sp : 0,
+    redeemPoints: sign === "redeem" ? rp : 0,
+    planned: sign === "earn" ? planned : false,
+    notes: notes.trim(),
+    tripId: tripChoice === "none" || tripChoice === "new" ? null : tripChoice,
+    ...(tripChoice === "new" && newTripName.trim() ? { __newTripName: newTripName.trim() } : {}),
+  });
+
   const submit = () => {
     if (!description) return;
     if (sign === "earn" && !(fp || bp || sp)) return;
     if (sign === "redeem" && !rp) return;
-    onSave({
-      date,
-      description,
-      sign,
-      flightPoints: sign === "earn" ? fp : 0,
-      bonusPoints: sign === "earn" ? bp : 0,
-      statusPoints: sign === "earn" ? sp : 0,
-      redeemPoints: sign === "redeem" ? rp : 0,
-      planned: sign === "earn" ? planned : false,
-      notes: notes.trim(),
-      tripId: tripChoice === "none" || tripChoice === "new" ? null : tripChoice,
-      ...(tripChoice === "new" && newTripName.trim() ? { __newTripName: newTripName.trim() } : {}),
-    });
+    const tx = buildTx();
+    if (!dupWarning) {
+      const key = txDedupeKey(tx);
+      const isDup = existingTransactions.some((t) => t.id !== initial?.id && txDedupeKey(t) === key);
+      if (isDup) {
+        setDupWarning(true);
+        return;
+      }
+    }
+    onSave(tx);
   };
 
   return (
@@ -2866,9 +3296,16 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [] }) {
         {planned && <span className="preview-sp"> &middot; not counted until confirmed</span>}
       </div>
 
+      {dupWarning && (
+        <p className="hint dup-warning">
+          This looks like an entry you've already logged (same date, description, and points). Tap Save again to
+          add it anyway.
+        </p>
+      )}
+
       <div className="cta-row">
         <button className="btn btn-primary btn-sm" onClick={submit}>
-          {initial ? "Save changes" : "Save"}
+          {dupWarning ? "Save anyway" : initial ? "Save changes" : "Save"}
         </button>
         <button className="btn btn-ghost btn-sm" onClick={onCancel}>
           Cancel
@@ -2978,6 +3415,62 @@ const CSS = `
 .row-checkbox { accent-color: var(--coral); width: 16px; height: 16px; flex-shrink: 0; }
 .row-selected { background: rgba(0, 177, 64, 0.08); }
 .not-in-trip-label { font-size: 11px; color: var(--muted); font-weight: 600; margin: 4px 2px 0; }
+.trip-header-row { display: flex; align-items: center; gap: 4px; }
+.trip-toggle { flex: 1; min-width: 0; }
+
+.trip-history-list { display: flex; flex-direction: column; gap: 8px; }
+.trip-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.trip-history-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.trip-history-name { font-size: 13.5px; font-weight: 700; color: var(--ice); }
+.trip-history-dates { font-size: 11px; color: var(--muted); }
+.trip-history-total {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  flex-shrink: 0;
+  line-height: 1.5;
+}
+
+.data-health-list { display: flex; flex-direction: column; gap: 6px; }
+.health-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--ice);
+}
+.health-warn { border-color: var(--laser); background: rgba(227, 38, 54, 0.1); }
+.health-value { font-family: 'IBM Plex Mono', monospace; font-weight: 600; margin-right: auto; margin-left: 10px; }
+
+.tier-history { display: flex; flex-direction: column; gap: 6px; }
+.tier-history-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--ice);
+}
+.tier-history-status { margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }
+
 .tab-btn {
   flex: 1;
   background: none;
@@ -3018,6 +3511,26 @@ const CSS = `
   font-weight: 600;
   transition: height 0.15s ease;
 }
+
+.undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--ice);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 35;
+}
+.undo-btn { background: none; border: none; color: var(--coral-fg); font-weight: 700; font-size: 13px; cursor: pointer; }
+.dup-warning { color: var(--laser-fg); }
 
 .fab {
   position: fixed;
@@ -3139,6 +3652,16 @@ const CSS = `
   color: var(--ice);
 }
 .review-stat-label { font-size: 11px; color: var(--muted); }
+.source-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--bg-surface-2);
+  margin: 2px 0 4px;
+}
+.source-bar-flight { background: var(--coral); }
+.source-bar-bonus { background: var(--fuchsia); }
 
 .tier-benefits { display: flex; flex-direction: column; gap: 12px; }
 .tier-benefit-card {
@@ -3178,6 +3701,7 @@ const CSS = `
   gap: 4px;
 }
 .card-unit { font-size: 11px; color: var(--muted); }
+.card-value-estimate { font-size: 10px; color: var(--muted); opacity: 0.75; text-align: center; }
 
 .lifetime-card {
   background: var(--bg-surface);
@@ -3271,6 +3795,20 @@ const CSS = `
 }
 .tier-donut-sub { font-size: 10.5px; color: var(--muted); }
 .tier-donut-benefit { font-size: 10px; color: var(--muted); opacity: 0.85; margin-top: 1px; }
+
+.goals-manage-list { display: flex; flex-direction: column; gap: 8px; }
+.goal-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--ice);
+}
 
 .goal-card, .status-card {
   background: var(--bg-surface);
