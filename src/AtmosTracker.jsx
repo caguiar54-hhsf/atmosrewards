@@ -12,6 +12,9 @@ import {
   PieChart,
   Pie,
   Cell,
+  BarChart,
+  Bar,
+  Legend,
 } from "recharts";
 
 // ---------- Atmos Rewards program constants (2026) ----------
@@ -136,6 +139,7 @@ const monthLabel = (iso) =>
 const monthLabelLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "long" });
 const fmtSigned = (n) => `${n >= 0 ? "+" : ""}${n.toLocaleString()}`;
 const fmtAxisK = (v) => (v === 0 ? "0" : Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}K` : `${v}`);
+const fmtAxisDollar = (v) => (v === 0 ? "$0" : Math.abs(v) >= 1000 ? `$${Math.round(v / 1000)}K` : `$${Math.round(v)}`);
 
 // Pulls a flight number like "AS1092" or "HA1082" out of a description string, so we can
 // deep-link to FlightAware without needing any API or account.
@@ -1361,6 +1365,32 @@ function buildYearMonthGroups(source) {
   // Same grouping, but for upcoming (planned) entries — a trip in progress can have some
   // legs already flown and others still upcoming, so this is intentionally separate from
   // tripGroupsData rather than merged into it.
+  // Trip cost per year, split into Work / Personal / Unspecified. Points cost is converted
+  // to an estimated dollar value (same rate as the points-valuation estimate) so it can sit
+  // on the same axis as actual cash cost.
+  const costByYearData = useMemo(() => {
+    const map = new Map();
+    tripGroupsData.forEach((tg) => {
+      if (!tg.startDate) return;
+      const estValue = (tg.trip.costCash || 0) + ((tg.trip.costPoints || 0) * CENTS_PER_POINT) / 100;
+      if (estValue <= 0) return;
+      const year = yearOf(tg.startDate);
+      if (!map.has(year)) map.set(year, { year, work: 0, personal: 0, unspecified: 0 });
+      const entry = map.get(year);
+      if (tg.trip.paidWork && tg.trip.paidPersonal) {
+        entry.work += estValue / 2;
+        entry.personal += estValue / 2;
+      } else if (tg.trip.paidWork) {
+        entry.work += estValue;
+      } else if (tg.trip.paidPersonal) {
+        entry.personal += estValue;
+      } else {
+        entry.unspecified += estValue;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.year - b.year);
+  }, [tripGroupsData]);
+
   const plannedTripGroups = useMemo(() => {
     return trips
       .map((trip) => {
@@ -1907,6 +1937,38 @@ function buildYearMonthGroups(source) {
                     <Line type="monotone" dataKey="value" stroke="#D3117B" strokeWidth={2} dot={{ r: 3, fill: "#D3117B" }} />
                   </LineChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+
+            {costByYearData.length > 0 && (
+              <div className="chart-wrap">
+                <p className="chart-caption">Cost per year traveled &middot; Work vs Personal</p>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={costByYearData} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
+                    <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="year" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis
+                      tick={{ fill: "#aebdc9", fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={44}
+                      tickFormatter={fmtAxisDollar}
+                    />
+                    <Tooltip
+                      contentStyle={{ background: "#1b365d", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: "#e8f1f5" }}
+                      formatter={(v) => `$${Math.round(v).toLocaleString()}`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11, color: "#aebdc9" }} />
+                    <Bar dataKey="work" stackId="cost" name="Work" fill="#0062b2" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="personal" stackId="cost" name="Personal" fill="#d3117b" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="unspecified" stackId="cost" name="Unspecified" fill="rgba(255,255,255,0.25)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+                <p className="hint" style={{ margin: 0 }}>
+                  Points cost converted at the same ~1.4&cent;/pt estimate used for your balance, added to any cash
+                  cost. Only includes trips with a cost entered.
+                </p>
               </div>
             )}
           </div>
