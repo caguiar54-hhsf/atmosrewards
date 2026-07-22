@@ -1371,18 +1371,14 @@ function buildYearMonthGroups(source) {
   // Status charts — when "All time" is selected, the year gets appended to each month label
   // to disambiguate across years.
   const costChartData = useMemo(() => {
-    const filtered = tripGroupsData.filter(
-      (tg) => tg.startDate && (viewYear === "all" || yearOf(tg.startDate) === viewYear)
-    );
     const map = new Map();
-    filtered.forEach((tg) => {
+    tripGroupsData.forEach((tg) => {
+      if (!tg.startDate) return;
       const estValue = (tg.trip.costCash || 0) + ((tg.trip.costPoints || 0) * CENTS_PER_POINT) / 100;
       if (estValue <= 0) return;
-      const mKey = monthKey(tg.startDate);
-      if (!map.has(mKey)) {
-        map.set(mKey, { key: mKey, name: chartMonthLabel(tg.startDate, viewYear === "all"), work: 0, personal: 0, unspecified: 0 });
-      }
-      const entry = map.get(mKey);
+      const year = yearOf(tg.startDate);
+      if (!map.has(year)) map.set(year, { name: String(year), work: 0, personal: 0, unspecified: 0 });
+      const entry = map.get(year);
       if (tg.trip.paidWork && tg.trip.paidPersonal) {
         entry.work += estValue / 2;
         entry.personal += estValue / 2;
@@ -1394,8 +1390,8 @@ function buildYearMonthGroups(source) {
         entry.unspecified += estValue;
       }
     });
-    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
-  }, [tripGroupsData, viewYear]);
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [tripGroupsData]);
 
   const plannedTripGroups = useMemo(() => {
     return trips
@@ -1949,7 +1945,7 @@ function buildYearMonthGroups(source) {
             {costChartData.length > 0 && (
               <div className="chart-wrap">
                 <p className="chart-caption">
-                  Cost by month &middot; {viewYear === "all" ? "all time" : viewYear} &middot; Work vs Personal
+                  Cost per year traveled &middot; Work vs Personal
                 </p>
                 <ResponsiveContainer width="100%" height={160}>
                   <BarChart data={costChartData} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
