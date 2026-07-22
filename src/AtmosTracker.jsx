@@ -1389,6 +1389,27 @@ function buildYearMonthGroups(source) {
     return Array.from(map.values()).sort((a, b) => a.year - b.year);
   }, [tripGroupsData]);
 
+  // Same cost data, but broken out by individual trip within whichever single year is
+  // selected via the year toggle — mirrors how the status chart shows month-by-month detail
+  // for one year instead of a multi-year overview.
+  const costForSelectedYear = useMemo(() => {
+    if (viewYear === "all") return null;
+    return tripGroupsData
+      .filter((tg) => tg.startDate && yearOf(tg.startDate) === viewYear)
+      .map((tg) => {
+        const estValue = (tg.trip.costCash || 0) + ((tg.trip.costPoints || 0) * CENTS_PER_POINT) / 100;
+        return { name: tg.trip.name, startDate: tg.startDate, trip: tg.trip, estValue };
+      })
+      .filter((row) => row.estValue > 0)
+      .sort((a, b) => (a.startDate < b.startDate ? -1 : 1))
+      .map((row) => ({
+        name: row.name,
+        work: row.trip.paidWork && row.trip.paidPersonal ? row.estValue / 2 : row.trip.paidWork ? row.estValue : 0,
+        personal: row.trip.paidWork && row.trip.paidPersonal ? row.estValue / 2 : row.trip.paidPersonal ? row.estValue : 0,
+        unspecified: !row.trip.paidWork && !row.trip.paidPersonal ? row.estValue : 0,
+      }));
+  }, [tripGroupsData, viewYear]);
+
   const plannedTripGroups = useMemo(() => {
     return trips
       .map((trip) => {
@@ -1938,13 +1959,24 @@ function buildYearMonthGroups(source) {
               </div>
             )}
 
-            {costByYearData.length > 0 && (
+            {(viewYear === "all" ? costByYearData.length > 0 : costForSelectedYear.length > 0) && (
               <div className="chart-wrap">
-                <p className="chart-caption">Cost per year traveled &middot; Work vs Personal</p>
+                <p className="chart-caption">
+                  {viewYear === "all" ? "Cost per year traveled" : `Cost by trip \u00b7 ${viewYear}`} &middot; Work vs
+                  Personal
+                </p>
                 <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={costByYearData} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
+                  <LineChart
+                    data={viewYear === "all" ? costByYearData : costForSelectedYear}
+                    margin={{ top: 4, right: 8, left: 4, bottom: 0 }}
+                  >
                     <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="year" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <XAxis
+                      dataKey={viewYear === "all" ? "year" : "name"}
+                      tick={{ fill: "#aebdc9", fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
                     <YAxis
                       tick={{ fill: "#aebdc9", fontSize: 10 }}
                       axisLine={false}
