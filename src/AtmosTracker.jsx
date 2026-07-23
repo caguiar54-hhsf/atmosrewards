@@ -2135,7 +2135,8 @@ function buildYearMonthGroups(source) {
                                 pg.trip.costCash ||
                                 pg.trip.paidWork ||
                                 pg.trip.paidPersonal ||
-                                pg.trip.confirmationCode) && (
+                                pg.trip.confirmationCode ||
+                                pg.trip.ticketNumber) && (
                                 <div className="trip-meta-row" style={{ marginTop: -2 }}>
                                   {(pg.trip.costPoints || pg.trip.costCash) && (
                                     <span className="trip-tag trip-tag-cost">
@@ -2148,6 +2149,9 @@ function buildYearMonthGroups(source) {
                                   {pg.trip.paidPersonal && <span className="trip-tag trip-tag-personal">Personal</span>}
                                   {pg.trip.confirmationCode && (
                                     <span className="trip-confirmation">Conf: {pg.trip.confirmationCode}</span>
+                                  )}
+                                  {pg.trip.ticketNumber && (
+                                    <span className="trip-confirmation">Ticket: {pg.trip.ticketNumber}</span>
                                   )}
                                 </div>
                               )}
@@ -2320,12 +2324,15 @@ function buildYearMonthGroups(source) {
                               )}
                             </p>
                           )}
-                          {(tg.trip.paidWork || tg.trip.paidPersonal || tg.trip.confirmationCode) && (
+                          {(tg.trip.paidWork || tg.trip.paidPersonal || tg.trip.confirmationCode || tg.trip.ticketNumber) && (
                             <div className="trip-meta-row">
                               {tg.trip.paidWork && <span className="trip-tag trip-tag-work">Work</span>}
                               {tg.trip.paidPersonal && <span className="trip-tag trip-tag-personal">Personal</span>}
                               {tg.trip.confirmationCode && (
                                 <span className="trip-confirmation">Conf: {tg.trip.confirmationCode}</span>
+                              )}
+                              {tg.trip.ticketNumber && (
+                                <span className="trip-confirmation">Ticket: {tg.trip.ticketNumber}</span>
                               )}
                             </div>
                           )}
@@ -2657,12 +2664,15 @@ function buildYearMonthGroups(source) {
                         {tg.trip.costCash ? `$${tg.trip.costCash.toLocaleString()}` : ""}
                       </span>
                     )}
-                    {(tg.trip.paidWork || tg.trip.paidPersonal || tg.trip.confirmationCode) && (
+                    {(tg.trip.paidWork || tg.trip.paidPersonal || tg.trip.confirmationCode || tg.trip.ticketNumber) && (
                       <div className="trip-meta-row">
                         {tg.trip.paidWork && <span className="trip-tag trip-tag-work">Work</span>}
                         {tg.trip.paidPersonal && <span className="trip-tag trip-tag-personal">Personal</span>}
                         {tg.trip.confirmationCode && (
                           <span className="trip-confirmation">Conf: {tg.trip.confirmationCode}</span>
+                        )}
+                        {tg.trip.ticketNumber && (
+                          <span className="trip-confirmation">Ticket: {tg.trip.ticketNumber}</span>
                         )}
                       </div>
                     )}
@@ -3014,6 +3024,7 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
   const [paidWork, setPaidWork] = useState(trip?.paidWork || false);
   const [paidPersonal, setPaidPersonal] = useState(trip?.paidPersonal || false);
   const [confirmationCode, setConfirmationCode] = useState(trip?.confirmationCode || "");
+  const [ticketNumber, setTicketNumber] = useState(trip?.ticketNumber || "");
   return (
     <div className="add-card compact">
       <label className="field">
@@ -3021,14 +3032,20 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Hilo family visit" />
       </label>
 
-      <label className="field">
-        <span>Confirmation code (optional)</span>
-        <input
-          value={confirmationCode}
-          onChange={(e) => setConfirmationCode(e.target.value.toUpperCase())}
-          placeholder="ABC123"
-        />
-      </label>
+      <div className="field-row">
+        <label className="field">
+          <span>Confirmation code (optional)</span>
+          <input
+            value={confirmationCode}
+            onChange={(e) => setConfirmationCode(e.target.value.toUpperCase())}
+            placeholder="ABC123"
+          />
+        </label>
+        <label className="field">
+          <span>Ticket number (optional)</span>
+          <input value={ticketNumber} onChange={(e) => setTicketNumber(e.target.value)} placeholder="0272151793823" />
+        </label>
+      </div>
 
       <div className="field-row">
         <label className="field-inline">
@@ -3065,6 +3082,7 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
               paidWork,
               paidPersonal,
               confirmationCode: confirmationCode.trim(),
+              ticketNumber: ticketNumber.trim(),
             })
           }
         >
