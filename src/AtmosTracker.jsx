@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star, MapPin, Briefcase } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star, MapPin, Briefcase, CreditCard } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -749,6 +749,21 @@ async function saveTrips(trips) {
     /* best effort */
   }
 }
+async function loadCredits() {
+  try {
+    const res = await window.storage.get("atmos-credits", false);
+    return res ? JSON.parse(res.value) : [];
+  } catch {
+    return [];
+  }
+}
+async function saveCredits(credits) {
+  try {
+    await window.storage.set("atmos-credits", JSON.stringify(credits), false);
+  } catch {
+    /* best effort */
+  }
+}
 async function loadDismissedSuggestions() {
   try {
     const res = await window.storage.get("atmos-dismissed-trip-suggestions", false);
@@ -798,6 +813,7 @@ export default function AtmosTracker({
   const [openingBalance, setOpeningBalance] = useState(null);
   const [lifetimeStart, setLifetimeStart] = useState(null);
   const [trips, setTrips] = useState([]);
+  const [credits, setCredits] = useState([]);
   const [dismissedSuggestions, setDismissedSuggestions] = useState([]);
   const [lastImportAt, setLastImportAt] = useState(null);
   const [lastExportAt, setLastExportAt] = useState(null);
@@ -828,7 +844,7 @@ export default function AtmosTracker({
 
   useEffect(() => {
     (async () => {
-      const [tx, g, seeded, ob, ls, tr, ds, li, le] = await Promise.all([
+      const [tx, g, seeded, ob, ls, tr, ds, li, le, cr] = await Promise.all([
         loadTx(),
         loadGoals(),
         loadSeededFlag(),
@@ -838,6 +854,7 @@ export default function AtmosTracker({
         loadDismissedSuggestions(),
         loadTimestamp("atmos-last-import"),
         loadTimestamp("atmos-last-export"),
+        loadCredits(),
       ]);
       if (!seeded && tx.length === 0) {
         const seeded_tx = SEED_TRANSACTIONS.map((s) => ({ id: uid(), ...s }));
@@ -854,6 +871,36 @@ export default function AtmosTracker({
       setDismissedSuggestions(ds);
       setLastImportAt(li);
       setLastExportAt(le);
+
+      // One-time migration: any trip still carrying the old inline credit fields gets a real
+      // Credit record instead, linked back to the trip that issued it. Safe to run every load
+      // since it checks for an existing match first.
+      let migratedCredits = cr;
+      const newCredits = [];
+      tr.forEach((trip) => {
+        if (!trip.creditCertificate) return;
+        const alreadyMigrated = cr.some(
+          (c) => c.issuedFromTripId === trip.id && c.certificateNumber === trip.creditCertificate
+        );
+        if (!alreadyMigrated) {
+          newCredits.push({
+            id: uid(),
+            issuedFromTripId: trip.id,
+            certificateNumber: trip.creditCertificate,
+            amount: trip.creditAmount || 0,
+            expirationDate: trip.creditExpiration || "",
+            used: false,
+            usedDate: "",
+            usedOnTripId: "",
+          });
+        }
+      });
+      if (newCredits.length > 0) {
+        migratedCredits = [...cr, ...newCredits];
+        saveCredits(migratedCredits);
+      }
+      setCredits(migratedCredits);
+
       setLoaded(true);
     })();
   }, []);
@@ -877,13 +924,14 @@ export default function AtmosTracker({
   }, [loaded, transactions]);
 
   const doRefresh = async () => {
-    const [tx, g, ob, ls, tr, ds] = await Promise.all([
+    const [tx, g, ob, ls, tr, ds, cr] = await Promise.all([
       loadTx(),
       loadGoals(),
       loadOpeningBalance(),
       loadLifetimeStart(),
       loadTrips(),
       loadDismissedSuggestions(),
+      loadCredits(),
     ]);
     setTransactions(tx);
     setGoals(g);
@@ -891,6 +939,7 @@ export default function AtmosTracker({
     setLifetimeStart(ls);
     setTrips(tr);
     setDismissedSuggestions(ds);
+    setCredits(cr);
     if ("serviceWorker" in navigator) {
       try {
         const reg = await navigator.serviceWorker.getRegistration();
@@ -1008,6 +1057,45 @@ export default function AtmosTracker({
     persistTrips(trips.filter((t) => t.id !== id));
     // Activities that belonged to this trip go back to being ungrouped, not deleted.
     persistTx(transactions.map((t) => (t.tripId === id ? { ...t, tripId: null } : t)));
+  };
+
+  const persistCredits = (next) => {
+    setCredits(next);
+    saveCredits(next);
+  };
+  const addCredit = (data) => persistCredits([...credits, { id: uid(), ...data }]);
+  const updateCredit = (id, patch) => persistCredits(credits.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const deleteCredit = (id) => persistCredits(credits.filter((c) => c.id !== id));
+
+  const creditsForTrip = (tripId) => credits.filter((c) => c.issuedFromTripId === tripId);
+  const creditsUsedOnTrip = (tripId) => credits.filter((c) => c.used && c.usedOnTripId === tripId);
+
+  const renderUsedCreditChip = (c) => {
+    const issuingTrip = trips.find((t) => t.id === c.issuedFromTripId);
+    return (
+      <span className="trip-tag trip-tag-cost" key={c.id}>
+        Paid via credit {c.certificateNumber}
+        {c.amount ? ` ($${c.amount.toLocaleString()})` : ""}
+        {issuingTrip ? ` from ${issuingTrip.name}` : ""}
+      </span>
+    );
+  };
+
+
+  const renderTripCreditChip = (c) => {
+    const usedOnTrip = c.usedOnTripId ? trips.find((t) => t.id === c.usedOnTripId) : null;
+    return (
+      <span className="trip-confirmation" key={c.id}>
+        Credit: {c.certificateNumber}
+        {c.amount ? ` ($${c.amount.toLocaleString()})` : ""}
+        {c.expirationDate && isValidISODate(c.expirationDate) ? ` \u2013 exp. ${fmtDate(c.expirationDate)}` : ""}
+        {c.used
+          ? ` \u2013 used${usedOnTrip ? ` on ${usedOnTrip.name}` : ""}${
+              c.usedDate && isValidISODate(c.usedDate) ? ` (${fmtDate(c.usedDate)})` : ""
+            }`
+          : " \u2013 available"}
+      </span>
+    );
   };
 
   // If the Log Activity form created a brand-new trip inline, create it here and swap the
@@ -2128,6 +2216,13 @@ function buildYearMonthGroups(source) {
                             >
                               <Pencil size={13} />
                             </button>
+                            <button
+                              className="icon-btn tiny"
+                              onClick={() => setActiveModal(`credit-new-${pg.trip.id}`)}
+                              aria-label="Add flight credit"
+                            >
+                              <CreditCard size={13} />
+                            </button>
                           </div>
                           {tripExpanded && (
                             <>
@@ -2137,7 +2232,8 @@ function buildYearMonthGroups(source) {
                                 pg.trip.paidPersonal ||
                                 pg.trip.confirmationCode ||
                                 pg.trip.ticketNumber ||
-                                pg.trip.creditCertificate) && (
+                                creditsForTrip(pg.trip.id).length > 0 ||
+                                creditsUsedOnTrip(pg.trip.id).length > 0) && (
                                 <div className="trip-meta-row" style={{ marginTop: -2 }}>
                                   {(pg.trip.costPoints || pg.trip.costCash) && (
                                     <span className="trip-tag trip-tag-cost">
@@ -2154,15 +2250,8 @@ function buildYearMonthGroups(source) {
                                   {pg.trip.ticketNumber && (
                                     <span className="trip-confirmation">Ticket: {pg.trip.ticketNumber}</span>
                                   )}
-                                  {pg.trip.creditCertificate && (
-                                    <span className="trip-confirmation">
-                                      Credit: {pg.trip.creditCertificate}
-                                      {pg.trip.creditAmount ? ` ($${pg.trip.creditAmount.toLocaleString()})` : ""}
-                                      {pg.trip.creditExpiration && isValidISODate(pg.trip.creditExpiration)
-                                        ? ` \u2013 exp. ${fmtDate(pg.trip.creditExpiration)}`
-                                        : ""}
-                                    </span>
-                                  )}
+                                  {creditsUsedOnTrip(pg.trip.id).map((c) => renderUsedCreditChip(c))}
+                                  {creditsForTrip(pg.trip.id).map((c) => renderTripCreditChip(c))}
                                 </div>
                               )}
                               {pg.items.map((t) => renderPlannedRow(t))}
@@ -2313,6 +2402,13 @@ function buildYearMonthGroups(source) {
                         >
                           <Pencil size={13} />
                         </button>
+                        <button
+                          className="icon-btn tiny"
+                          onClick={() => setActiveModal(`credit-new-${tg.trip.id}`)}
+                          aria-label="Add flight credit"
+                        >
+                          <CreditCard size={13} />
+                        </button>
                       </div>
                       {expanded && (
                         <>
@@ -2338,7 +2434,8 @@ function buildYearMonthGroups(source) {
                             tg.trip.paidPersonal ||
                             tg.trip.confirmationCode ||
                             tg.trip.ticketNumber ||
-                            tg.trip.creditCertificate) && (
+                            creditsForTrip(tg.trip.id).length > 0 ||
+                            creditsUsedOnTrip(tg.trip.id).length > 0) && (
                             <div className="trip-meta-row">
                               {tg.trip.paidWork && <span className="trip-tag trip-tag-work">Work</span>}
                               {tg.trip.paidPersonal && <span className="trip-tag trip-tag-personal">Personal</span>}
@@ -2348,15 +2445,8 @@ function buildYearMonthGroups(source) {
                               {tg.trip.ticketNumber && (
                                 <span className="trip-confirmation">Ticket: {tg.trip.ticketNumber}</span>
                               )}
-                              {tg.trip.creditCertificate && (
-                                <span className="trip-confirmation">
-                                  Credit: {tg.trip.creditCertificate}
-                                  {tg.trip.creditAmount ? ` ($${tg.trip.creditAmount.toLocaleString()})` : ""}
-                                  {tg.trip.creditExpiration && isValidISODate(tg.trip.creditExpiration)
-                                    ? ` \u2013 exp. ${fmtDate(tg.trip.creditExpiration)}`
-                                    : ""}
-                                </span>
-                              )}
+                              {creditsUsedOnTrip(tg.trip.id).map((c) => renderUsedCreditChip(c))}
+                              {creditsForTrip(tg.trip.id).map((c) => renderTripCreditChip(c))}
                             </div>
                           )}
                           <div className="log-list">{tg.items.map((t) => renderActivityRow(t))}</div>
@@ -2470,6 +2560,15 @@ function buildYearMonthGroups(source) {
               }}
             >
               <Briefcase size={16} /> Trip history
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                setActiveModal("creditsList");
+                setMenuOpen(false);
+              }}
+            >
+              <CreditCard size={16} /> Flight credits
             </button>
             <button
               className="menu-item"
@@ -2691,7 +2790,8 @@ function buildYearMonthGroups(source) {
                       tg.trip.paidPersonal ||
                       tg.trip.confirmationCode ||
                       tg.trip.ticketNumber ||
-                      tg.trip.creditCertificate) && (
+                      creditsForTrip(tg.trip.id).length > 0 ||
+                      creditsUsedOnTrip(tg.trip.id).length > 0) && (
                       <div className="trip-meta-row">
                         {tg.trip.paidWork && <span className="trip-tag trip-tag-work">Work</span>}
                         {tg.trip.paidPersonal && <span className="trip-tag trip-tag-personal">Personal</span>}
@@ -2701,15 +2801,8 @@ function buildYearMonthGroups(source) {
                         {tg.trip.ticketNumber && (
                           <span className="trip-confirmation">Ticket: {tg.trip.ticketNumber}</span>
                         )}
-                        {tg.trip.creditCertificate && (
-                          <span className="trip-confirmation">
-                            Credit: {tg.trip.creditCertificate}
-                            {tg.trip.creditAmount ? ` ($${tg.trip.creditAmount.toLocaleString()})` : ""}
-                            {tg.trip.creditExpiration && isValidISODate(tg.trip.creditExpiration)
-                              ? ` \u2013 exp. ${fmtDate(tg.trip.creditExpiration)}`
-                              : ""}
-                          </span>
-                        )}
+                        {creditsUsedOnTrip(tg.trip.id).map((c) => renderUsedCreditChip(c))}
+                        {creditsForTrip(tg.trip.id).map((c) => renderTripCreditChip(c))}
                       </div>
                     )}
                   </div>
@@ -2722,6 +2815,86 @@ function buildYearMonthGroups(source) {
               ))}
             </div>
           )}
+        </Modal>
+      )}
+
+      {activeModal === "creditsList" && (
+        <Modal title="Flight credits" onClose={() => setActiveModal(null)}>
+          <div className="goals-manage-list">
+            {credits.length === 0 && <p className="empty">No flight credits logged yet.</p>}
+            {credits
+              .slice()
+              .sort((a, b) => (a.used === b.used ? 0 : a.used ? 1 : -1))
+              .map((c) => {
+                const issuingTrip = trips.find((t) => t.id === c.issuedFromTripId);
+                const usedOnTrip = c.usedOnTripId ? trips.find((t) => t.id === c.usedOnTripId) : null;
+                return (
+                  <div className="goal-manage-row" key={c.id} style={{ alignItems: "flex-start" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <span>
+                        {c.certificateNumber}
+                        {c.amount ? ` \u2013 $${c.amount.toLocaleString()}` : ""}
+                      </span>
+                      <span className="trip-history-dates">
+                        {c.expirationDate && isValidISODate(c.expirationDate) ? `Expires ${fmtDate(c.expirationDate)} \u00b7 ` : ""}
+                        From {issuingTrip ? issuingTrip.name : "unknown trip"}
+                      </span>
+                      <span className="trip-history-dates">
+                        {c.used
+                          ? `Used${usedOnTrip ? ` on ${usedOnTrip.name}` : ""}${
+                              c.usedDate && isValidISODate(c.usedDate) ? ` (${fmtDate(c.usedDate)})` : ""
+                            }`
+                          : "Available"}
+                      </span>
+                    </div>
+                    <div className="cta-row">
+                      <button className="btn btn-ghost btn-sm" onClick={() => setActiveModal(`credit-edit-${c.id}`)}>
+                        Edit
+                      </button>
+                      <button className="btn btn-ghost btn-sm danger-text" onClick={() => deleteCredit(c.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            <button className="btn btn-primary btn-sm" onClick={() => setActiveModal("credit-new-")}>
+              <Plus size={14} /> Add credit
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {typeof activeModal === "string" && activeModal.startsWith("credit-new-") && (
+        <Modal title="Add flight credit" onClose={() => setActiveModal(null)}>
+          <CreditEditor
+            credit={null}
+            trips={trips}
+            defaultTripId={activeModal.replace("credit-new-", "")}
+            onSave={(data) => {
+              addCredit(data);
+              setActiveModal(null);
+            }}
+            onCancel={() => setActiveModal(null)}
+          />
+        </Modal>
+      )}
+
+      {typeof activeModal === "string" && activeModal.startsWith("credit-edit-") && (
+        <Modal title="Edit flight credit" onClose={() => setActiveModal(null)}>
+          <CreditEditor
+            credit={credits.find((c) => c.id === activeModal.replace("credit-edit-", ""))}
+            trips={trips}
+            onSave={(data) => {
+              updateCredit(activeModal.replace("credit-edit-", ""), data);
+              setActiveModal(null);
+            }}
+            onDelete={() => {
+              deleteCredit(activeModal.replace("credit-edit-", ""));
+              setActiveModal(null);
+            }}
+            onCancel={() => setActiveModal(null)}
+          />
         </Modal>
       )}
 
@@ -3053,6 +3226,103 @@ function PasswordEditor({ onSave, onCancel }) {
   );
 }
 
+function CreditEditor({ credit, trips, defaultTripId, onSave, onDelete, onCancel }) {
+  const [certificateNumber, setCertificateNumber] = useState(credit?.certificateNumber || "");
+  const [amount, setAmount] = useState(credit?.amount || "");
+  const [expirationDate, setExpirationDate] = useState(credit?.expirationDate || "");
+  const [issuedFromTripId, setIssuedFromTripId] = useState(credit?.issuedFromTripId || defaultTripId || "");
+  const [used, setUsed] = useState(credit?.used || false);
+  const [usedDate, setUsedDate] = useState(credit?.usedDate || "");
+  const [usedOnTripId, setUsedOnTripId] = useState(credit?.usedOnTripId || "");
+
+  return (
+    <div className="add-card compact">
+      <label className="field">
+        <span>Certificate number</span>
+        <input
+          value={certificateNumber}
+          onChange={(e) => setCertificateNumber(e.target.value.toUpperCase())}
+          placeholder="1234567890"
+        />
+      </label>
+      <div className="field-row">
+        <label className="field">
+          <span>Amount ($)</span>
+          <input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="300" />
+        </label>
+        <label className="field">
+          <span>Expires (optional)</span>
+          <input type="date" value={expirationDate} onChange={(e) => setExpirationDate(e.target.value)} />
+        </label>
+      </div>
+      <label className="field">
+        <span>Issued from trip</span>
+        <select value={issuedFromTripId} onChange={(e) => setIssuedFromTripId(e.target.value)}>
+          <option value="">Select the trip that generated this credit</option>
+          {trips.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="field-inline">
+        <input type="checkbox" checked={used} onChange={(e) => setUsed(e.target.checked)} /> Used
+      </label>
+
+      {used && (
+        <div className="field-row">
+          <label className="field">
+            <span>Date used</span>
+            <input type="date" value={usedDate} onChange={(e) => setUsedDate(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Applied to trip</span>
+            <select value={usedOnTripId} onChange={(e) => setUsedOnTripId(e.target.value)}>
+              <option value="">Select trip</option>
+              {trips.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      <div className="cta-row">
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() =>
+            certificateNumber.trim() &&
+            issuedFromTripId &&
+            onSave({
+              certificateNumber: certificateNumber.trim(),
+              amount: Number(amount) || 0,
+              expirationDate,
+              issuedFromTripId,
+              used,
+              usedDate: used ? usedDate : "",
+              usedOnTripId: used ? usedOnTripId : "",
+            })
+          }
+        >
+          Save
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+          Cancel
+        </button>
+        {onDelete && (
+          <button className="btn btn-ghost btn-sm danger-text" onClick={onDelete}>
+            Delete credit
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TripEditor({ trip, onSave, onDelete, onCancel }) {
   const [name, setName] = useState(trip?.name || "");
   const [costPoints, setCostPoints] = useState(trip?.costPoints || "");
@@ -3061,9 +3331,6 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
   const [paidPersonal, setPaidPersonal] = useState(trip?.paidPersonal || false);
   const [confirmationCode, setConfirmationCode] = useState(trip?.confirmationCode || "");
   const [ticketNumber, setTicketNumber] = useState(trip?.ticketNumber || "");
-  const [creditCertificate, setCreditCertificate] = useState(trip?.creditCertificate || "");
-  const [creditAmount, setCreditAmount] = useState(trip?.creditAmount || "");
-  const [creditExpiration, setCreditExpiration] = useState(trip?.creditExpiration || "");
   return (
     <div className="add-card compact">
       <label className="field">
@@ -3085,25 +3352,6 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
           <input value={ticketNumber} onChange={(e) => setTicketNumber(e.target.value)} placeholder="0272151793823" />
         </label>
       </div>
-
-      <div className="field-row">
-        <label className="field">
-          <span>Flight credit certificate (optional)</span>
-          <input
-            value={creditCertificate}
-            onChange={(e) => setCreditCertificate(e.target.value.toUpperCase())}
-            placeholder="1234567890"
-          />
-        </label>
-        <label className="field">
-          <span>Credit amount ($)</span>
-          <input type="number" min="0" value={creditAmount} onChange={(e) => setCreditAmount(e.target.value)} placeholder="300" />
-        </label>
-      </div>
-      <label className="field">
-        <span>Credit expires (optional)</span>
-        <input type="date" value={creditExpiration} onChange={(e) => setCreditExpiration(e.target.value)} />
-      </label>
 
       <div className="field-row">
         <label className="field-inline">
@@ -3141,9 +3389,6 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
               paidPersonal,
               confirmationCode: confirmationCode.trim(),
               ticketNumber: ticketNumber.trim(),
-              creditCertificate: creditCertificate.trim(),
-              creditAmount: Number(creditAmount) || 0,
-              creditExpiration: creditExpiration,
             })
           }
         >
