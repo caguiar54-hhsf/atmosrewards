@@ -3429,8 +3429,6 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [], existingTransac
 
   const submit = () => {
     if (!description) return;
-    if (sign === "earn" && !(fp || bp || sp)) return;
-    if (sign === "redeem" && !rp) return;
     const tx = buildTx();
     if (!dupWarning) {
       const key = txDedupeKey(tx);
