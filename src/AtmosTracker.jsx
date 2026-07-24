@@ -2157,6 +2157,10 @@ function buildYearMonthGroups(source) {
                                   {pg.trip.creditCertificate && (
                                     <span className="trip-confirmation">
                                       Credit: {pg.trip.creditCertificate}
+                                      {pg.trip.creditAmount ? ` ($${pg.trip.creditAmount.toLocaleString()})` : ""}
+                                      {pg.trip.creditExpiration && isValidISODate(pg.trip.creditExpiration)
+                                        ? ` \u2013 exp. ${fmtDate(pg.trip.creditExpiration)}`
+                                        : ""}
                                     </span>
                                   )}
                                 </div>
@@ -2347,6 +2351,10 @@ function buildYearMonthGroups(source) {
                               {tg.trip.creditCertificate && (
                                 <span className="trip-confirmation">
                                   Credit: {tg.trip.creditCertificate}
+                                  {tg.trip.creditAmount ? ` ($${tg.trip.creditAmount.toLocaleString()})` : ""}
+                                  {tg.trip.creditExpiration && isValidISODate(tg.trip.creditExpiration)
+                                    ? ` \u2013 exp. ${fmtDate(tg.trip.creditExpiration)}`
+                                    : ""}
                                 </span>
                               )}
                             </div>
@@ -2696,6 +2704,10 @@ function buildYearMonthGroups(source) {
                         {tg.trip.creditCertificate && (
                           <span className="trip-confirmation">
                             Credit: {tg.trip.creditCertificate}
+                            {tg.trip.creditAmount ? ` ($${tg.trip.creditAmount.toLocaleString()})` : ""}
+                            {tg.trip.creditExpiration && isValidISODate(tg.trip.creditExpiration)
+                              ? ` \u2013 exp. ${fmtDate(tg.trip.creditExpiration)}`
+                              : ""}
                           </span>
                         )}
                       </div>
@@ -3050,6 +3062,8 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
   const [confirmationCode, setConfirmationCode] = useState(trip?.confirmationCode || "");
   const [ticketNumber, setTicketNumber] = useState(trip?.ticketNumber || "");
   const [creditCertificate, setCreditCertificate] = useState(trip?.creditCertificate || "");
+  const [creditAmount, setCreditAmount] = useState(trip?.creditAmount || "");
+  const [creditExpiration, setCreditExpiration] = useState(trip?.creditExpiration || "");
   return (
     <div className="add-card compact">
       <label className="field">
@@ -3072,13 +3086,23 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
         </label>
       </div>
 
+      <div className="field-row">
+        <label className="field">
+          <span>Flight credit certificate (optional)</span>
+          <input
+            value={creditCertificate}
+            onChange={(e) => setCreditCertificate(e.target.value.toUpperCase())}
+            placeholder="1234567890"
+          />
+        </label>
+        <label className="field">
+          <span>Credit amount ($)</span>
+          <input type="number" min="0" value={creditAmount} onChange={(e) => setCreditAmount(e.target.value)} placeholder="300" />
+        </label>
+      </div>
       <label className="field">
-        <span>Flight credit certificate (optional)</span>
-        <input
-          value={creditCertificate}
-          onChange={(e) => setCreditCertificate(e.target.value.toUpperCase())}
-          placeholder="1234567890"
-        />
+        <span>Credit expires (optional)</span>
+        <input type="date" value={creditExpiration} onChange={(e) => setCreditExpiration(e.target.value)} />
       </label>
 
       <div className="field-row">
@@ -3118,6 +3142,8 @@ function TripEditor({ trip, onSave, onDelete, onCancel }) {
               confirmationCode: confirmationCode.trim(),
               ticketNumber: ticketNumber.trim(),
               creditCertificate: creditCertificate.trim(),
+              creditAmount: Number(creditAmount) || 0,
+              creditExpiration: creditExpiration,
             })
           }
         >
