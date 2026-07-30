@@ -3036,7 +3036,7 @@ function buildYearMonthGroups(source) {
               onClick={() => {
                 downloadTextFile(
                   `atmos-tracker-backup-${todayISO()}.json`,
-                  JSON.stringify({ transactions, goals, openingBalance, lifetimeStart, trips }, null, 2),
+                  JSON.stringify({ transactions, goals, openingBalance, lifetimeStart, trips, credits }, null, 2),
                   "application/json"
                 );
                 const now = new Date().toISOString();
