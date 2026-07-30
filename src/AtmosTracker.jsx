@@ -164,16 +164,18 @@ function getFlightIdent(t) {
 function migrateFlightFields(transactions) {
   let changed = false;
   const migrated = transactions.map((t) => {
-    if (t.origin && t.destination && t.flightNumber) return t;
+    if (t.origin && t.destination && t.flightNumber && t.fareClass) return t;
     const route = !t.origin || !t.destination ? extractRoute(t.description) : null;
     const ident = !t.flightNumber ? extractFlightIdent(t.description) : null;
-    if (!route && !ident) return t;
+    const fareClass = !t.fareClass ? extractFareClass(t.description) : null;
+    if (!route && !ident && !fareClass) return t;
     changed = true;
     return {
       ...t,
       origin: t.origin || route?.origin || "",
       destination: t.destination || route?.dest || "",
       flightNumber: t.flightNumber || ident || "",
+      fareClass: t.fareClass || fareClass || "",
     };
   });
   return { migrated, changed };
@@ -233,6 +235,17 @@ function suggestedTripName(chain) {
 function extractFlightIdent(description) {
   const m = (description || "").match(/\b([A-Z]{2}\d{2,4})\b/);
   return m ? m[1] : null;
+}
+
+// The fare/booking class code is the single letter that follows the flight number in Alaska's
+// own exports (e.g. "AS1092 J"). Anchoring on the flight-number pattern first, rather than
+// matching any lone capital letter, keeps this from false-matching unrelated text.
+function extractFareClass(description) {
+  const m = (description || "").match(/\b[A-Z]{2}\d{2,4}\s+([A-Z])\b/);
+  return m ? m[1] : null;
+}
+function getFareClass(t) {
+  return t.fareClass || extractFareClass(t.description);
 }
 
 function topRouteFromEntries(entries) {
@@ -405,6 +418,7 @@ function csvRowToTx(row) {
     const description = row.activity || "Imported activity";
     const route = extractRoute(description);
     const flightNumber = extractFlightIdent(description);
+    const fareClass = extractFareClass(description);
     const isFlight = !!route;
     const rawPoints = num(row.points);
     const rawBonus = num(row["bonus points"]);
@@ -436,6 +450,7 @@ function csvRowToTx(row) {
       origin: route ? route.origin : "",
       destination: route ? route.dest : "",
       flightNumber: flightNumber || "",
+      fareClass: fareClass || "",
       sign: "earn",
       flightPoints,
       bonusPoints,
@@ -3699,6 +3714,7 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete, selectMode
         <ChevronDown size={14} className="row-chevron collapsed" />
       </button>
       <div className="expanded-desc">{t.description}</div>
+      {getFareClass(t) && <div className="expanded-notes">Fare class: {getFareClass(t)}</div>}
       {t.notes && <div className="expanded-notes">{t.notes}</div>}
       <div className="expanded-breakdown">
         {t.sign === "redeem" ? (
@@ -3769,6 +3785,7 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [], existingTransac
   const [origin, setOrigin] = useState(initial?.origin || "");
   const [destination, setDestination] = useState(initial?.destination || "");
   const [flightNumber, setFlightNumber] = useState(initial?.flightNumber || "");
+  const [fareClass, setFareClass] = useState(initial?.fareClass || "");
   const [sign, setSign] = useState(initial?.sign || "earn");
   const [flightPoints, setFlightPoints] = useState(initial?.flightPoints || "");
   const [bonusPoints, setBonusPoints] = useState((initial?.bonusPoints || 0) + (initial?.nonStatusPoints || 0) || "");
@@ -3792,6 +3809,7 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [], existingTransac
     origin,
     destination,
     flightNumber,
+    fareClass,
     sign,
     flightPoints: sign === "earn" ? fp : 0,
     bonusPoints: sign === "earn" ? bp : 0,
@@ -3871,14 +3889,24 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [], existingTransac
           </option>
         ))}
       </datalist>
-      <label className="field">
-        <span>Flight number (optional)</span>
-        <input
-          value={flightNumber}
-          onChange={(e) => setFlightNumber(e.target.value.toUpperCase().replace(/\s+/g, ""))}
-          placeholder="AS1092"
-        />
-      </label>
+      <div className="field-row">
+        <label className="field">
+          <span>Flight number (optional)</span>
+          <input
+            value={flightNumber}
+            onChange={(e) => setFlightNumber(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+            placeholder="AS1092"
+          />
+        </label>
+        <label className="field">
+          <span>Fare class (optional)</span>
+          <input
+            value={fareClass}
+            onChange={(e) => setFareClass(e.target.value.toUpperCase().replace(/\s+/g, "").slice(0, 2))}
+            placeholder="J"
+          />
+        </label>
+      </div>
 
       <label className="field">
         <span>Notes (optional)</span>
