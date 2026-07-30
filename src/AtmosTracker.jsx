@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star, MapPin, Briefcase, CreditCard } from "lucide-react";
+import { Plus, Trash2, X, Award, Loader2, Sparkles, Upload, Check, Pencil, ChevronDown, Menu, LogOut, User, Camera, KeyRound, Plane, Search, Download, Star, MapPin, Briefcase, CreditCard, Sun, Moon } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -816,6 +816,7 @@ export default function AtmosTracker({
   const [credits, setCredits] = useState([]);
   const [dismissedSuggestions, setDismissedSuggestions] = useState([]);
   const [lastImportAt, setLastImportAt] = useState(null);
+  const [theme, setTheme] = useState("dark");
   const [lastExportAt, setLastExportAt] = useState(null);
   const [activityView, setActivityView] = useState("date"); // 'date' | 'trip'
   const [selectMode, setSelectMode] = useState(false);
@@ -844,7 +845,7 @@ export default function AtmosTracker({
 
   useEffect(() => {
     (async () => {
-      const [tx, g, seeded, ob, ls, tr, ds, li, le, cr] = await Promise.all([
+      const [tx, g, seeded, ob, ls, tr, ds, li, le, cr, th] = await Promise.all([
         loadTx(),
         loadGoals(),
         loadSeededFlag(),
@@ -855,6 +856,7 @@ export default function AtmosTracker({
         loadTimestamp("atmos-last-import"),
         loadTimestamp("atmos-last-export"),
         loadCredits(),
+        loadTimestamp("atmos-theme"),
       ]);
       if (!seeded && tx.length === 0) {
         const seeded_tx = SEED_TRANSACTIONS.map((s) => ({ id: uid(), ...s }));
@@ -871,6 +873,7 @@ export default function AtmosTracker({
       setDismissedSuggestions(ds);
       setLastImportAt(li);
       setLastExportAt(le);
+      if (th === "light" || th === "dark") setTheme(th);
 
       // One-time migration: any trip still carrying the old inline credit fields gets a real
       // Credit record instead, linked back to the trip that issued it. Safe to run every load
@@ -1063,6 +1066,16 @@ export default function AtmosTracker({
     setCredits(next);
     saveCredits(next);
   };
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    saveTimestamp("atmos-theme", next);
+  };
+  const chartGridStroke = theme === "light" ? "rgba(20,30,50,0.14)" : "rgba(255,255,255,0.16)";
+  const chartAxisColor = theme === "light" ? "#5a6b7d" : "#aebdc9";
+  const chartTooltipBg = theme === "light" ? "#ffffff" : "#1b365d";
+  const chartTooltipBorder = theme === "light" ? "1px solid rgba(20,30,50,0.18)" : "1px solid rgba(255,255,255,0.18)";
+  const chartLabelColor = theme === "light" ? "#16233d" : "#e8f1f5";
   const addCredit = (data) => persistCredits([...credits, { id: uid(), ...data }]);
   const updateCredit = (id, patch) => persistCredits(credits.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   const deleteCredit = (id) => persistCredits(credits.filter((c) => c.id !== id));
@@ -1372,6 +1385,34 @@ export default function AtmosTracker({
       bonusPct: points > 0 ? Math.round((totals.bonus / points) * 100) : 0,
     };
   }, [viewYear, flightEntries, totals, tierInfo]);
+
+  const prevYearSummary = useMemo(() => {
+    if (viewYear === "all") return null;
+    const prevYear = viewYear - 1;
+    const prevEntries = flightEntries.filter((t) => isValidISODate(t.date) && yearOf(t.date) === prevYear);
+    const prevAll = confirmedTransactions.filter((t) => isValidISODate(t.date) && yearOf(t.date) === prevYear);
+    const prevFlight = prevAll.reduce((s, t) => s + (t.sign === "earn" ? t.flightPoints || 0 : 0), 0);
+    const prevBonus = prevAll.reduce((s, t) => s + (t.sign === "earn" ? (t.bonusPoints || 0) + (t.nonStatusPoints || 0) : 0), 0);
+    const prevStatus = prevAll.reduce((s, t) => s + statusDelta(t), 0);
+    return {
+      flights: prevEntries.length,
+      points: prevFlight + prevBonus,
+      status: prevStatus,
+      tier: getTierInfo(prevStatus).current,
+    };
+  }, [viewYear, flightEntries, confirmedTransactions]);
+
+  const yoyDelta = (current, prev) => {
+    if (prev == null) return null;
+    const diff = current - prev;
+    if (diff === 0) return <span className="review-stat-delta">Same as {viewYear - 1}</span>;
+    const up = diff > 0;
+    return (
+      <span className={`review-stat-delta ${up ? "delta-up" : "delta-down"}`}>
+        {up ? "\u25b2" : "\u25bc"} {Math.abs(diff).toLocaleString()} vs {viewYear - 1}
+      </span>
+    );
+  };
 
   const tierHistoryByYear = useMemo(() => {
     return availableYears
@@ -1725,7 +1766,7 @@ function buildYearMonthGroups(source) {
   };
 
   return (
-    <div className="app-root">
+    <div className={`app-root ${theme === "light" ? "theme-light" : ""}`}>
       <style>{CSS}</style>
 
       <header className="board-header">
@@ -1925,12 +1966,12 @@ function buildYearMonthGroups(source) {
                 <p className="chart-caption">Balance trend &middot; {viewYear === "all" ? "all time" : viewYear}</p>
                 <ResponsiveContainer width="100%" height={120}>
                   <LineChart data={pointsChart} margin={{ top: 4, right: 36, left: 4, bottom: 0 }}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
+                    <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: chartAxisColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: chartAxisColor, fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
                     <Tooltip
-                      contentStyle={{ background: "#1b365d", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
-                      labelStyle={{ color: "#e8f1f5" }}
+                      contentStyle={{ background: chartTooltipBg, border: chartTooltipBorder, borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: chartLabelColor }}
                     />
                     <Line type="monotone" dataKey="value" stroke="#00B140" strokeWidth={2} dot={{ r: 3, fill: "#00B140" }} />
                   </LineChart>
@@ -1945,7 +1986,7 @@ function buildYearMonthGroups(source) {
                   <span className="tier-badge-group">
                     <span
                       className="tier-badge"
-                      style={{ color: tierInfo.current?.color || "#aebdc9", borderColor: tierInfo.current?.color || "rgba(255,255,255,0.16)" }}
+                      style={{ color: tierInfo.current?.color || chartAxisColor, borderColor: tierInfo.current?.color || chartGridStroke }}
                     >
                       {tierInfo.current ? tierInfo.current.name : "No tier yet"}
                     </span>
@@ -2007,12 +2048,12 @@ function buildYearMonthGroups(source) {
                 <p className="chart-caption">Status points &middot; {viewYear === "all" ? "all time" : viewYear}</p>
                 <ResponsiveContainer width="100%" height={130}>
                   <LineChart data={statusChart} margin={{ top: 4, right: 36, left: 4, bottom: 0 }}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
+                    <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: chartAxisColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: chartAxisColor, fontSize: 10 }} axisLine={false} tickLine={false} width={40} tickFormatter={fmtAxisK} />
                     <Tooltip
-                      contentStyle={{ background: "#1b365d", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
-                      labelStyle={{ color: "#e8f1f5" }}
+                      contentStyle={{ background: chartTooltipBg, border: chartTooltipBorder, borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: chartLabelColor }}
                     />
                     {viewYear !== "all" &&
                       TIERS.map((t) => (
@@ -2037,21 +2078,21 @@ function buildYearMonthGroups(source) {
                 </p>
                 <ResponsiveContainer width="100%" height={160}>
                   <BarChart data={costChartData} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.16)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: "#aebdc9", fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: chartAxisColor, fontSize: 10 }} axisLine={false} tickLine={false} />
                     <YAxis
-                      tick={{ fill: "#aebdc9", fontSize: 10 }}
+                      tick={{ fill: chartAxisColor, fontSize: 10 }}
                       axisLine={false}
                       tickLine={false}
                       width={44}
                       tickFormatter={fmtAxisDollar}
                     />
                     <Tooltip
-                      contentStyle={{ background: "#1b365d", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, fontSize: 12 }}
-                      labelStyle={{ color: "#e8f1f5" }}
+                      contentStyle={{ background: chartTooltipBg, border: chartTooltipBorder, borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: chartLabelColor }}
                       formatter={(v) => `$${Math.round(v).toLocaleString()}`}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11, color: "#aebdc9" }} />
+                    <Legend wrapperStyle={{ fontSize: 11, color: chartAxisColor }} />
                     <Bar dataKey="work" stackId="cost" name="Work" fill="#0062b2" />
                     <Bar dataKey="personal" stackId="cost" name="Personal" fill="#d3117b" />
                     <Bar dataKey="unspecified" stackId="cost" name="Unspecified" fill="rgba(255,255,255,0.25)" radius={[4, 4, 0, 0]} />
@@ -2597,6 +2638,16 @@ function buildYearMonthGroups(source) {
             >
               <Download size={16} /> Export data
             </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                toggleTheme();
+                setMenuOpen(false);
+              }}
+            >
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+              {theme === "dark" ? "Light mode" : "Dark mode"}
+            </button>
             <div className="menu-divider" />
             <button
               className="menu-item menu-item-danger"
@@ -3071,20 +3122,28 @@ function buildYearMonthGroups(source) {
             <div className="review-stat">
               <span className="review-stat-value">{yearSummary.flights.toLocaleString()}</span>
               <span className="review-stat-label">{yearSummary.flights === 1 ? "flight" : "flights"} logged</span>
+              {prevYearSummary && yoyDelta(yearSummary.flights, prevYearSummary.flights)}
             </div>
             <div className="review-stat">
               <span className="review-stat-value">{yearSummary.points.toLocaleString()}</span>
               <span className="review-stat-label">points earned</span>
+              {prevYearSummary && yoyDelta(yearSummary.points, prevYearSummary.points)}
             </div>
             <div className="review-stat">
               <span className="review-stat-value">{yearSummary.status.toLocaleString()}</span>
               <span className="review-stat-label">status points</span>
+              {prevYearSummary && yoyDelta(yearSummary.status, prevYearSummary.status)}
             </div>
             <div className="review-stat">
               <span className="review-stat-value" style={{ color: yearSummary.tier?.color || "var(--muted)" }}>
                 {yearSummary.tier ? yearSummary.tier.name : "None"}
               </span>
               <span className="review-stat-label">tier reached</span>
+              {prevYearSummary && (
+                <span className="review-stat-delta">
+                  {prevYearSummary.tier ? prevYearSummary.tier.name : "None"} in {viewYear - 1}
+                </span>
+              )}
             </div>
             {yearSummary.topRoute && (
               <div className="review-stat review-stat-wide">
@@ -3869,6 +3928,23 @@ const CSS = `
   max-width: 560px;
   margin: 0 auto;
 }
+.app-root.theme-light {
+  --bg-deep: #eef1f6;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #e7ecf2;
+  --line: rgba(20, 30, 50, 0.14);
+  --ice: #16233d;
+  --muted: #5a6b7d;
+  --coral: #00913a;
+  --laser: #d14e28;
+  --fuchsia: #b80f6c;
+  --purple: #4d1f70;
+  --coral-fg: #0a7a34;
+  --laser-fg: #b8391a;
+  --fuchsia-fg: #94095a;
+  background: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.55)),
+    linear-gradient(135deg, #eef1f6 0%, #ecdff2 55%, #fbe6ef 100%);
+}
 .app-root * { box-sizing: border-box; }
 .app-root button, .app-root input { font-family: inherit; color: inherit; }
 .app-root button:focus-visible, .app-root input:focus-visible {
@@ -4197,6 +4273,9 @@ const CSS = `
   color: var(--ice);
 }
 .review-stat-label { font-size: 11px; color: var(--muted); }
+.review-stat-delta { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+.review-stat-delta.delta-up { color: var(--coral-fg); }
+.review-stat-delta.delta-down { color: var(--laser-fg); }
 .source-bar {
   display: flex;
   height: 8px;
