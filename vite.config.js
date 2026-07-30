@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["b31sb3lrs6tg1.png"],
+      includeAssets: ["logo512.png"],
       manifest: {
         name: "Atmos Tracker",
         short_name: "Atmos Tracker",
@@ -16,13 +16,10 @@ export default defineConfig({
         display: "standalone",
         background_color: "#0d1b2a",
         theme_color: "#413691",
-        // Reusing your existing logo for both sizes — browsers scale it fine, but for a
-        // crisper home-screen icon, drop in properly-sized 192x192 and 512x512 PNGs later
-        // and point these entries at them instead.
         icons: [
-          { src: "/b31sb3lrs6tg1.png", sizes: "192x192", type: "image/png" },
-          { src: "/b31sb3lrs6tg1.png", sizes: "512x512", type: "image/png" },
-          { src: "/b31sb3lrs6tg1.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: "/logo512.png", sizes: "192x192", type: "image/png" },
+          { src: "/logo512.png", sizes: "512x512", type: "image/png" },
+          { src: "/logo512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
     }),
