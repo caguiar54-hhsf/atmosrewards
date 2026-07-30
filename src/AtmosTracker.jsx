@@ -18,7 +18,7 @@ import {
 } from "recharts";
 
 // ---------- Atmos Rewards program constants (2026) ----------
-// Status points reset each calendar year; earned benefits run through Jan 31 of the following year.
+// Status points reset each calendar year; earned benefits run through Dec 31 of the following year.
 const TIERS = [
   { name: "Silver", threshold: 20000, color: "#d9e1e2" },
   { name: "Gold", threshold: 40000, color: "#f2c14e" },
@@ -1306,8 +1306,8 @@ export default function AtmosTracker({
   const closeToNextTier =
     tierInfoThisYear.next && remainingToNextTierThisYear > 0 && remainingToNextTierThisYear <= Math.round(tierInfoThisYear.next.threshold * 0.1);
 
-  const isJanuary = new Date().getMonth() === 0;
-  const daysUntilJan31 = Math.ceil((new Date(yearNow, 0, 31) - new Date()) / 86400000);
+  const isDecember = new Date().getMonth() === 11;
+  const daysUntilYearEnd = Math.ceil((new Date(yearNow, 11, 31) - new Date()) / 86400000);
   const prevYearStatus = useMemo(
     () =>
       confirmedTransactions
@@ -1317,8 +1317,8 @@ export default function AtmosTracker({
   );
   const prevTierInfo = getTierInfo(prevYearStatus);
   const benefitsExpiringSoon =
-    isJanuary &&
-    daysUntilJan31 >= 0 &&
+    isDecember &&
+    daysUntilYearEnd >= 0 &&
     prevTierInfo.current &&
     (!tierInfoThisYear.current || TIERS.indexOf(tierInfoThisYear.current) < TIERS.indexOf(prevTierInfo.current));
 
@@ -1755,9 +1755,9 @@ function buildYearMonthGroups(source) {
       {loaded && benefitsExpiringSoon && !dismissedReminders.has("expiring") && (
         <div className="reminder-banner reminder-urgent">
           <span>
-            Your {yearNow - 1} {prevTierInfo.current.name} benefits expire Jan 31 &mdash; {daysUntilJan31}{" "}
-            {daysUntilJan31 === 1 ? "day" : "days"} left. You're currently tracking{" "}
-            {tierInfoThisYear.current ? tierInfoThisYear.current.name : "no tier yet"} for {yearNow}.
+            Your {yearNow - 1} {prevTierInfo.current.name} benefits expire Dec 31 &mdash; {daysUntilYearEnd}{" "}
+            {daysUntilYearEnd === 1 ? "day" : "days"} left. You're currently tracking{" "}
+            {tierInfoThisYear.current ? tierInfoThisYear.current.name : "no tier yet"} for {yearNow + 1}.
           </span>
           <button
             className="icon-btn tiny"
@@ -1987,8 +1987,8 @@ function buildYearMonthGroups(source) {
                   )}
                   <p className="hint">
                     {viewYear === yearNow
-                      ? `Status points reset Jan 1, ${yearNow + 1}. Status earned this year carries benefits through Jan 31, ${yearNow + 1}.`
-                      : `Benefits from ${viewYear} status carried through Jan 31, ${viewYear + 1}.`}
+                      ? `Status points reset Jan 1, ${yearNow + 1}. Status earned this year carries benefits through Dec 31, ${yearNow + 1}.`
+                      : `Benefits from ${viewYear} status carried through Dec 31, ${viewYear + 1}.`}
                   </p>
                 </>
               )}
