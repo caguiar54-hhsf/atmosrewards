@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["logo512.png"],
+      includeAssets: ["logo512-2.png"],
       manifest: {
         name: "Atmos Tracker",
         short_name: "Atmos Tracker",
@@ -17,9 +17,9 @@ export default defineConfig({
         background_color: "#0d1b2a",
         theme_color: "#413691",
         icons: [
-          { src: "/logo512.png", sizes: "192x192", type: "image/png" },
-          { src: "/logo512.png", sizes: "512x512", type: "image/png" },
-          { src: "/logo512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: "/logo512-2.png", sizes: "192x192", type: "image/png" },
+          { src: "/logo512-2.png", sizes: "512x512", type: "image/png" },
+          { src: "/logo512-2.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
     }),
