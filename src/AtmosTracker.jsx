@@ -1863,7 +1863,7 @@ function buildYearMonthGroups(source) {
                   {remainingFlights && (
                     <p className="hint" style={{ margin: 0 }}>
                       At your average of {avgPointsPerFlight.toLocaleString()} pts/flight, that's about{" "}
-                      {remainingFlights} more flight{remainingFlights === 1 ? "" : "s"} to go.
+                      {remainingFlights.toLocaleString()} more flight{remainingFlights === 1 ? "" : "s"} to go.
                     </p>
                   )}
                 </div>
@@ -1982,7 +1982,7 @@ function buildYearMonthGroups(source) {
                   {flightsToNextTier && (
                     <p className="hint" style={{ margin: 0 }}>
                       At your {yearNow} average of {avgStatusPerFlightThisYear.toLocaleString()} sp/flight, that's
-                      about {flightsToNextTier} more flight{flightsToNextTier === 1 ? "" : "s"} to {tierInfo.next.name}.
+                      about {flightsToNextTier.toLocaleString()} more flight{flightsToNextTier === 1 ? "" : "s"} to {tierInfo.next.name}.
                     </p>
                   )}
                   <p className="hint">
@@ -2138,7 +2138,7 @@ function buildYearMonthGroups(source) {
                       <>
                         <p className="hint" style={{ margin: 0 }}>
                           Looks like a trip: <strong>{suggestedTripName(chain)}</strong> (
-                          {chain.items.length} legs)
+                          {chain.items.length.toLocaleString()} legs)
                         </p>
                         <div className="cta-row">
                           <button
@@ -2286,7 +2286,7 @@ function buildYearMonthGroups(source) {
                   />
                 ) : (
                   <>
-                    <span>{selectedIds.size} selected</span>
+                    <span>{selectedIds.size.toLocaleString()} selected</span>
                     <button className="btn btn-primary btn-sm" onClick={() => setGroupingSuggestion("selection")}>
                       Group into trip
                     </button>
@@ -2314,7 +2314,7 @@ function buildYearMonthGroups(source) {
             {invalidCount > 0 && (
               <div className="warn-banner">
                 <span>
-                  {invalidCount} {invalidCount === 1 ? "entry has" : "entries have"} an unreadable date and won't
+                  {invalidCount.toLocaleString()} {invalidCount === 1 ? "entry has" : "entries have"} an unreadable date and won't
                   show up in the charts above.
                 </span>
                 <button
@@ -2777,7 +2777,7 @@ function buildYearMonthGroups(source) {
                       {tg.startDate ? fmtDate(tg.startDate) : "No date"}
                       {tg.endDate && tg.endDate !== tg.startDate ? ` \u2013 ${fmtDate(tg.endDate)}` : ""}
                       {" \u00b7 "}
-                      {tg.items.length} {tg.items.length === 1 ? "entry" : "entries"}
+                      {tg.items.length.toLocaleString()} {tg.items.length === 1 ? "entry" : "entries"}
                     </span>
                     {(tg.trip.costPoints || tg.trip.costCash) && (
                       <span className="trip-history-dates">
@@ -2903,7 +2903,7 @@ function buildYearMonthGroups(source) {
           <div className="data-health-list">
             <div className={`health-row ${reviewTransactions.length > 0 ? "health-warn" : ""}`}>
               <span>Needs review</span>
-              <span className="health-value">{reviewTransactions.length}</span>
+              <span className="health-value">{reviewTransactions.length.toLocaleString()}</span>
               {reviewTransactions.length > 0 && (
                 <button
                   className="btn btn-ghost btn-sm"
@@ -2918,7 +2918,7 @@ function buildYearMonthGroups(source) {
             </div>
             <div className={`health-row ${invalidCount > 0 ? "health-warn" : ""}`}>
               <span>Unknown date entries</span>
-              <span className="health-value">{invalidCount}</span>
+              <span className="health-value">{invalidCount.toLocaleString()}</span>
               {invalidCount > 0 && (
                 <button
                   className="btn btn-ghost btn-sm"
@@ -2933,7 +2933,7 @@ function buildYearMonthGroups(source) {
             </div>
             <div className={`health-row ${tripSuggestions.length > 0 ? "health-warn" : ""}`}>
               <span>Trip suggestions pending</span>
-              <span className="health-value">{tripSuggestions.length}</span>
+              <span className="health-value">{tripSuggestions.length.toLocaleString()}</span>
             </div>
             <div className="health-row">
               <span>Last CSV import</span>
@@ -3412,7 +3412,7 @@ function TripGroupEditor({ trips, itemCount, onAssignExisting, onCreateNew, onCa
   return (
     <div className="add-card compact">
       <p className="hint" style={{ margin: 0 }}>
-        Group {itemCount} {itemCount === 1 ? "entry" : "entries"} into a trip.
+        Group {itemCount.toLocaleString()} {itemCount === 1 ? "entry" : "entries"} into a trip.
       </p>
       {trips.length > 0 && (
         <div className="trip-pick-list">
