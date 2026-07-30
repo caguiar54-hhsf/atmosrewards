@@ -58,7 +58,7 @@ const AIRPORTS = [
   ["IND", "Indianapolis, IN"], ["BWI", "Baltimore, MD"], ["DCA", "Washington, DC (Reagan)"],
   ["IAD", "Washington, DC (Dulles)"], ["PHL", "Philadelphia, PA"], ["JFK", "New York (JFK), NY"],
   ["LGA", "New York (LaGuardia), NY"], ["EWR", "Newark, NJ"], ["BOS", "Boston, MA"], ["PVD", "Providence, RI"],
-  ["BDL", "Hartford, CT"], ["ANC", "Anchorage, AK"], ["HNL", "Honolulu, Oahu, HI"], ["OGG", "Kahului, Maui, HI"],
+  ["BDL", "Hartford, CT"], ["HNL", "Honolulu, Oahu, HI"], ["OGG", "Kahului, Maui, HI"],
   ["KOA", "Kailua-Kona, Big Island, HI"], ["ITO", "Hilo, Big Island, HI"], ["LIH", "Lihue, Kauai, HI"],
   ["MKK", "Molokai, HI"], ["LNY", "Lanai, HI"], ["JHM", "Kapalua, Maui, HI"], ["YVR", "Vancouver, Canada"],
   ["YYC", "Calgary, Canada"], ["YEG", "Edmonton, Canada"], ["YYZ", "Toronto, Canada"], ["YUL", "Montreal, Canada"],
@@ -148,6 +148,37 @@ function extractRoute(description) {
   return m ? { origin: m[1], dest: m[2] } : null;
 }
 
+// Prefer the real Origin/Destination/Flight number fields once an entry has them; fall back
+// to regex-parsing the description for older or imported entries that don't yet.
+function getRoute(t) {
+  if (t.origin && t.destination) return { origin: t.origin, dest: t.destination };
+  return extractRoute(t.description);
+}
+function getFlightIdent(t) {
+  return t.flightNumber || extractFlightIdent(t.description);
+}
+
+// One-time-per-load backfill: any entry that already has a recognizable route/flight number
+// in its description but no structured fields yet gets them filled in. Idempotent — only
+// touches entries missing a field, so it's safe to run on every load.
+function migrateFlightFields(transactions) {
+  let changed = false;
+  const migrated = transactions.map((t) => {
+    if (t.origin && t.destination && t.flightNumber) return t;
+    const route = !t.origin || !t.destination ? extractRoute(t.description) : null;
+    const ident = !t.flightNumber ? extractFlightIdent(t.description) : null;
+    if (!route && !ident) return t;
+    changed = true;
+    return {
+      ...t,
+      origin: t.origin || route?.origin || "",
+      destination: t.destination || route?.dest || "",
+      flightNumber: t.flightNumber || ident || "",
+    };
+  });
+  return { migrated, changed };
+}
+
 const fmtShortDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fmtTimestamp = (iso) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Never";
@@ -161,7 +192,7 @@ function suggestTripChains(transactions) {
   const candidates = transactions
     .filter((t) => !t.planned && t.sign !== "redeem" && (t.flightPoints || 0) > 0 && !t.tripId && isValidISODate(t.date))
     .map((t) => {
-      const route = extractRoute(t.description);
+      const route = getRoute(t);
       return route ? { ...t, ...route } : null;
     })
     .filter(Boolean)
@@ -207,9 +238,10 @@ function extractFlightIdent(description) {
 function topRouteFromEntries(entries) {
   const counts = new Map();
   for (const t of entries) {
-    const match = (t.description || "").match(/[A-Z]{3}-[A-Z]{3}/);
-    if (!match) continue;
-    counts.set(match[0], (counts.get(match[0]) || 0) + 1);
+    const route = getRoute(t);
+    if (!route) continue;
+    const routeStr = `${route.origin}-${route.dest}`;
+    counts.set(routeStr, (counts.get(routeStr) || 0) + 1);
   }
   let best = null;
   let bestCount = 0;
@@ -371,7 +403,9 @@ function csvRowToTx(row) {
 
   if (isNativeFormat) {
     const description = row.activity || "Imported activity";
-    const isFlight = /[A-Z]{3}-[A-Z]{3}/.test(description);
+    const route = extractRoute(description);
+    const flightNumber = extractFlightIdent(description);
+    const isFlight = !!route;
     const rawPoints = num(row.points);
     const rawBonus = num(row["bonus points"]);
     const rawStatus = num(row["status points"]);
@@ -399,6 +433,9 @@ function csvRowToTx(row) {
     return {
       date: normalizeDateToISO(row.date),
       description,
+      origin: route ? route.origin : "",
+      destination: route ? route.dest : "",
+      flightNumber: flightNumber || "",
       sign: "earn",
       flightPoints,
       bonusPoints,
@@ -859,12 +896,14 @@ export default function AtmosTracker({
         loadTimestamp("atmos-theme"),
       ]);
       if (!seeded && tx.length === 0) {
-        const seeded_tx = SEED_TRANSACTIONS.map((s) => ({ id: uid(), ...s }));
+        const seeded_tx = migrateFlightFields(SEED_TRANSACTIONS.map((s) => ({ id: uid(), ...s }))).migrated;
         setTransactions(seeded_tx);
         saveTx(seeded_tx);
         markSeeded();
       } else {
-        setTransactions(tx);
+        const { migrated, changed } = migrateFlightFields(tx);
+        setTransactions(migrated);
+        if (changed) saveTx(migrated);
       }
       setGoals(g);
       setOpeningBalance(ob);
@@ -936,7 +975,8 @@ export default function AtmosTracker({
       loadDismissedSuggestions(),
       loadCredits(),
     ]);
-    setTransactions(tx);
+    const { migrated: migratedTx } = migrateFlightFields(tx);
+    setTransactions(migratedTx);
     setGoals(g);
     setOpeningBalance(ob);
     setLifetimeStart(ls);
@@ -3617,7 +3657,7 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete, selectMode
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const total = pointsDelta(t);
   const sp = statusDelta(t);
-  const flightIdent = t.sign !== "redeem" ? extractFlightIdent(t.description) : null;
+  const flightIdent = t.sign !== "redeem" ? getFlightIdent(t) : null;
 
   if (selectMode) {
     return (
@@ -3726,6 +3766,9 @@ function ActivityRow({ t, expanded, onToggleExpand, onEdit, onDelete, selectMode
 function ActivityEditor({ onSave, onCancel, initial, trips = [], existingTransactions = [] }) {
   const [date, setDate] = useState(initial?.date || todayISO());
   const [description, setDescription] = useState(initial?.description || "");
+  const [origin, setOrigin] = useState(initial?.origin || "");
+  const [destination, setDestination] = useState(initial?.destination || "");
+  const [flightNumber, setFlightNumber] = useState(initial?.flightNumber || "");
   const [sign, setSign] = useState(initial?.sign || "earn");
   const [flightPoints, setFlightPoints] = useState(initial?.flightPoints || "");
   const [bonusPoints, setBonusPoints] = useState((initial?.bonusPoints || 0) + (initial?.nonStatusPoints || 0) || "");
@@ -3746,6 +3789,9 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [], existingTransac
   const buildTx = () => ({
     date,
     description,
+    origin,
+    destination,
+    flightNumber,
     sign,
     flightPoints: sign === "earn" ? fp : 0,
     bonusPoints: sign === "earn" ? bp : 0,
@@ -3793,6 +3839,44 @@ function ActivityEditor({ onSave, onCancel, initial, trips = [], existingTransac
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Alaska Airlines HNL-ITO AS1092"
+        />
+      </label>
+
+      <div className="field-row">
+        <label className="field">
+          <span>Origin (optional)</span>
+          <input
+            value={origin}
+            onChange={(e) => setOrigin(e.target.value.toUpperCase())}
+            placeholder="HNL"
+            list="airport-datalist"
+            maxLength={3}
+          />
+        </label>
+        <label className="field">
+          <span>Destination (optional)</span>
+          <input
+            value={destination}
+            onChange={(e) => setDestination(e.target.value.toUpperCase())}
+            placeholder="ITO"
+            list="airport-datalist"
+            maxLength={3}
+          />
+        </label>
+      </div>
+      <datalist id="airport-datalist">
+        {AIRPORTS.map(([code, city]) => (
+          <option key={code} value={code}>
+            {city}
+          </option>
+        ))}
+      </datalist>
+      <label className="field">
+        <span>Flight number (optional)</span>
+        <input
+          value={flightNumber}
+          onChange={(e) => setFlightNumber(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+          placeholder="AS1092"
         />
       </label>
 
