@@ -552,10 +552,12 @@ function FlapNumber({ value }) {
 
 // Small donut showing progress toward one tier's status-point threshold, with points
 // remaining (or "Reached") underneath.
-function TierDonut({ tier, statusPoints }) {
+const TIER_LIGHT_TEXT_MAP = { Silver: "#5a6b7d", Gold: "#8a6300", Platinum: "#0d6ba8", Titanium: "#6a3a96" };
+function TierDonut({ tier, statusPoints, theme }) {
   const achieved = Math.min(statusPoints, tier.threshold);
   const remaining = Math.max(0, tier.threshold - statusPoints);
   const reached = statusPoints >= tier.threshold;
+  const displayColor = theme === "light" ? TIER_LIGHT_TEXT_MAP[tier.name] || tier.color : tier.color;
   const data = [
     { name: "achieved", value: achieved },
     { name: "remaining", value: remaining || 0.0001 },
@@ -576,16 +578,16 @@ function TierDonut({ tier, statusPoints }) {
               stroke="none"
               isAnimationActive={false}
             >
-              <Cell fill={tier.color} />
-              <Cell fill="rgba(255,255,255,0.14)" />
+              <Cell fill={displayColor} />
+              <Cell fill={theme === "light" ? "rgba(20,30,50,0.10)" : "rgba(255,255,255,0.14)"} />
             </Pie>
           </PieChart>
         </ResponsiveContainer>
-        <div className="tier-donut-center" style={{ color: tier.color }}>
+        <div className="tier-donut-center" style={{ color: displayColor }}>
           {reached ? <Check size={18} /> : `${Math.round((achieved / tier.threshold) * 100)}%`}
         </div>
       </div>
-      <div className="tier-donut-name" style={{ color: tier.color }}>
+      <div className="tier-donut-name" style={{ color: displayColor }}>
         {tier.name}
       </div>
       <div className="tier-donut-sub">{reached ? "Reached" : `${remaining.toLocaleString()} pts left`}</div>
@@ -1131,6 +1133,8 @@ export default function AtmosTracker({
   const chartTooltipBg = theme === "light" ? "#ffffff" : "#1b365d";
   const chartTooltipBorder = theme === "light" ? "1px solid rgba(20,30,50,0.18)" : "1px solid rgba(255,255,255,0.18)";
   const chartLabelColor = theme === "light" ? "#16233d" : "#e8f1f5";
+  const TIER_LIGHT_TEXT = { Silver: "#5a6b7d", Gold: "#8a6300", Platinum: "#0d6ba8", Titanium: "#6a3a96" };
+  const tierTextColor = (t) => (t ? (theme === "light" ? TIER_LIGHT_TEXT[t.name] || t.color : t.color) : null);
   const addCredit = (data) => persistCredits([...credits, { id: uid(), ...data }]);
   const updateCredit = (id, patch) => persistCredits(credits.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   const deleteCredit = (id) => persistCredits(credits.filter((c) => c.id !== id));
@@ -1983,15 +1987,15 @@ function buildYearMonthGroups(source) {
             </div>
 
             <div className="totals-grid">
-              <div className="total-tile" style={{ "--tile-color": "#00B140" }}>
+              <div className="total-tile" style={{ "--tile-color": "#f3a529" }}>
                 <span className="total-label">Flight points</span>
                 <span className="total-value">{totals.flight.toLocaleString()}</span>
               </div>
-              <div className="total-tile" style={{ "--tile-color": "#D3117B" }}>
+              <div className="total-tile" style={{ "--tile-color": "#d0248c" }}>
                 <span className="total-label">Bonus points</span>
                 <span className="total-value">{totals.bonus.toLocaleString()}</span>
               </div>
-              <div className="total-tile" style={{ "--tile-color": "#E95D34" }}>
+              <div className="total-tile" style={{ "--tile-color": "#e8623a" }}>
                 <span className="total-label">Status points</span>
                 <span className="total-value">{totals.status.toLocaleString()}</span>
               </div>
@@ -2028,7 +2032,7 @@ function buildYearMonthGroups(source) {
                       contentStyle={{ background: chartTooltipBg, border: chartTooltipBorder, borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: chartLabelColor }}
                     />
-                    <Line type="monotone" dataKey="value" stroke="#00B140" strokeWidth={2} dot={{ r: 3, fill: "#00B140" }} />
+                    <Line type="monotone" dataKey="value" stroke="#f3a529" strokeWidth={2} dot={{ r: 3, fill: "#f3a529" }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -2041,7 +2045,7 @@ function buildYearMonthGroups(source) {
                   <span className="tier-badge-group">
                     <span
                       className="tier-badge"
-                      style={{ color: tierInfo.current?.color || chartAxisColor, borderColor: tierInfo.current?.color || chartGridStroke }}
+                      style={{ color: tierTextColor(tierInfo.current) || chartAxisColor, borderColor: tierTextColor(tierInfo.current) || chartGridStroke }}
                     >
                       {tierInfo.current ? tierInfo.current.name : "No tier yet"}
                     </span>
@@ -2093,7 +2097,7 @@ function buildYearMonthGroups(source) {
             {viewYear !== "all" && (
               <div className="tier-donut-grid">
                 {TIERS.map((tier) => (
-                  <TierDonut key={tier.name} tier={tier} statusPoints={statusForViewYear} />
+                  <TierDonut key={tier.name} tier={tier} statusPoints={statusForViewYear} theme={theme} />
                 ))}
               </div>
             )}
@@ -2120,7 +2124,7 @@ function buildYearMonthGroups(source) {
                           label={{ value: t.name, position: "right", fill: t.color, fontSize: 10 }}
                         />
                       ))}
-                    <Line type="monotone" dataKey="value" stroke="#D3117B" strokeWidth={2} dot={{ r: 3, fill: "#D3117B" }} />
+                    <Line type="monotone" dataKey="value" stroke="#d0248c" strokeWidth={2} dot={{ r: 3, fill: "#d0248c" }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -2149,7 +2153,7 @@ function buildYearMonthGroups(source) {
                     />
                     <Legend wrapperStyle={{ fontSize: 11, color: chartAxisColor }} />
                     <Bar dataKey="work" stackId="cost" name="Work" fill="#0062b2" />
-                    <Bar dataKey="personal" stackId="cost" name="Personal" fill="#d3117b" />
+                    <Bar dataKey="personal" stackId="cost" name="Personal" fill="#d0248c" />
                     <Bar dataKey="unspecified" stackId="cost" name="Unspecified" fill="rgba(255,255,255,0.25)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -2821,7 +2825,7 @@ function buildYearMonthGroups(source) {
           <div className="tier-benefits">
             {TIERS.map((tier) => (
               <div className="tier-benefit-card" key={tier.name}>
-                <div className="tier-benefit-head" style={{ color: tier.color, borderColor: tier.color }}>
+                <div className="tier-benefit-head" style={{ color: tierTextColor(tier), borderColor: tierTextColor(tier) }}>
                   <span>
                     {tier.name} <span className="oneworld-badge">oneworld {ONEWORLD_TIER[tier.name]}</span>
                   </span>
@@ -2848,7 +2852,7 @@ function buildYearMonthGroups(source) {
                     <span>{h.year}</span>
                     <span
                       className="tier-badge"
-                      style={{ color: h.tier?.color || "var(--muted)", borderColor: h.tier?.color || "var(--line)" }}
+                      style={{ color: tierTextColor(h.tier) || "var(--muted)", borderColor: tierTextColor(h.tier) || "var(--line)" }}
                     >
                       {h.tier ? h.tier.name : "No tier"}
                     </span>
@@ -4018,19 +4022,21 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap');
 
 .app-root {
-  --bg-deep: #001f52;
-  --bg-surface: #1b365d;
-  --bg-surface-2: #2d486f;
+  --bg-deep: #001233;
+  --bg-surface: #0d2c54;
+  --bg-surface-2: #16406f;
   --line: rgba(255, 255, 255, 0.16);
-  --ice: #f5f8fb;
-  --muted: #aebdc9;
-  --coral: #00b140;
-  --laser: #e95d34;
-  --fuchsia: #d3117b;
-  --purple: #5d2685;
-  --coral-fg: #3ddb84;
+  --ice: #f3f8fc;
+  --muted: #a9c1d6;
+  --coral: #f3a529;
+  --laser: #e8623a;
+  --fuchsia: #d0248c;
+  --purple: #4a1f7f;
+  --teal: #00b8c4;
+  --coral-fg: #ffce6b;
   --laser-fg: #ff8f66;
-  --fuchsia-fg: #f15fa8;
+  --fuchsia-fg: #f15fb0;
+  --teal-fg: #5fe0ea;
   background: linear-gradient(rgba(0, 12, 36, 0.6), rgba(0, 12, 36, 0.6)),
     linear-gradient(135deg, var(--bg-deep) 0%, var(--purple) 55%, var(--fuchsia) 100%);
   color: var(--ice);
@@ -4047,13 +4053,15 @@ const CSS = `
   --line: rgba(20, 30, 50, 0.14);
   --ice: #16233d;
   --muted: #5a6b7d;
-  --coral: #00913a;
-  --laser: #d14e28;
-  --fuchsia: #b80f6c;
-  --purple: #4d1f70;
-  --coral-fg: #0a7a34;
-  --laser-fg: #b8391a;
-  --fuchsia-fg: #94095a;
+  --coral: #a06400;
+  --laser: #b8431f;
+  --fuchsia: #9c1d70;
+  --purple: #431a72;
+  --teal: #007a82;
+  --coral-fg: #7a4a00;
+  --laser-fg: #96341a;
+  --fuchsia-fg: #7a0d4a;
+  --teal-fg: #00636a;
   background: linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.55)),
     linear-gradient(135deg, #eef1f6 0%, #ecdff2 55%, #fbe6ef 100%);
 }
@@ -4142,8 +4150,11 @@ const CSS = `
   padding: 2px 8px;
 }
 .trip-tag-work { color: #7fc0f2; background: rgba(0, 98, 178, 0.22); }
-.trip-tag-personal { color: #f291c4; background: rgba(211, 17, 123, 0.2); }
-.trip-tag-cost { color: #ff8a8a; background: rgba(229, 72, 77, 0.2); }
+.trip-tag-personal { color: #f2a0d0; background: rgba(208, 36, 140, 0.22); }
+.trip-tag-cost { color: #ffab8a; background: rgba(232, 98, 58, 0.22); }
+.app-root.theme-light .trip-tag-work { color: #04447c; background: rgba(0, 98, 178, 0.14); }
+.app-root.theme-light .trip-tag-personal { color: #7a0d4a; background: rgba(208, 36, 140, 0.14); }
+.app-root.theme-light .trip-tag-cost { color: #96341a; background: rgba(232, 98, 58, 0.16); }
 .trip-confirmation {
   font-size: 10.5px;
   font-family: 'IBM Plex Mono', monospace;
@@ -4273,7 +4284,7 @@ const CSS = `
   height: 56px;
   border-radius: 50%;
   background: var(--coral);
-  color: #2b0e0c;
+  color: #3d2400;
   border: none;
   box-shadow: 0 6px 18px rgba(0,0,0,0.35);
   display: flex;
@@ -4282,7 +4293,7 @@ const CSS = `
   cursor: pointer;
   z-index: 30;
 }
-.fab:hover { background: #ff6b5f; }
+.fab:hover { background: #ffce6b; }
 
 .menu-backdrop {
   position: fixed;
@@ -4479,7 +4490,7 @@ const CSS = `
 .lifetime-bar { margin-top: 6px; }
 .lifetime-bar-fill { background: linear-gradient(90deg, #006a4e, var(--coral)); }
 .milestone-pending { color: var(--muted); border-color: var(--line); }
-.milestone-reached { color: #3ddb84; border-color: #006a4e; }
+.milestone-reached { color: #ffce6b; border-color: #006a4e; }
 
 .totals-grid {
   display: grid;
@@ -4509,7 +4520,7 @@ const CSS = `
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 2px 6px;
-  color: var(--coral);
+  color: #f3a529;
   text-align: center;
   animation: flapin 0.35s ease;
 }
@@ -4693,8 +4704,8 @@ const CSS = `
   border: 1px solid transparent;
 }
 .btn-sm { padding: 7px 11px; font-size: 12.5px; }
-.btn-primary { background: var(--coral); color: #042417; }
-.btn-primary:hover { background: #3ddb84; }
+.btn-primary { background: var(--coral); color: #3d2400; }
+.btn-primary:hover { background: #ffce6b; }
 .btn-ghost { background: transparent; border-color: var(--line); color: var(--ice); }
 .btn-ghost:hover { border-color: var(--coral-fg); color: var(--coral-fg); }
 
